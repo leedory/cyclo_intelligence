@@ -1,0 +1,75 @@
+orchestrator:
+  ros__parameters:
+    ffw_sg2_rev1:
+      robot_name: "FFW SG2 Rev1 - ACT sim/real"
+      observation:
+        # These are the only camera streams present in both data domains.
+        # The converter keeps head landscape and both wrists portrait.
+        images:
+          cam_left_head:
+            topic: /zed/zed_node/left/image_rect_color/compressed
+            msg_type: sensor_msgs/msg/CompressedImage
+          cam_left_wrist:
+            topic: /camera_left/camera_left/color/image_rect_raw/compressed
+            msg_type: sensor_msgs/msg/CompressedImage
+            rotation_deg: 270
+          cam_right_wrist:
+            topic: /camera_right/camera_right/color/image_rect_raw/compressed
+            msg_type: sensor_msgs/msg/CompressedImage
+            rotation_deg: 270
+        state:
+          upper_body:
+            topic: /joint_states
+            msg_type: sensor_msgs/msg/JointState
+            joint_names:
+              - arm_l_joint1
+              - arm_l_joint2
+              - arm_l_joint3
+              - arm_l_joint4
+              - arm_l_joint5
+              - arm_l_joint6
+              - arm_l_joint7
+              - gripper_l_joint1
+              - arm_r_joint1
+              - arm_r_joint2
+              - arm_r_joint3
+              - arm_r_joint4
+              - arm_r_joint5
+              - arm_r_joint6
+              - arm_r_joint7
+              - gripper_r_joint1
+              - head_joint1
+              - head_joint2
+              - lift_joint
+          mobile:
+            topic: /odom
+            msg_type: nav_msgs/msg/Odometry
+            joint_names:
+              - linear_x
+              - linear_y
+              - angular_z
+      action:
+        arm_right:
+          topic: /leader/joint_trajectory_command_broadcaster_right/joint_trajectory
+          msg_type: trajectory_msgs/msg/JointTrajectory
+          joint_names:
+            - arm_r_joint1
+            - arm_r_joint2
+            - arm_r_joint3
+            - arm_r_joint4
+            - arm_r_joint5
+            - arm_r_joint6
+            - arm_r_joint7
+            - gripper_r_joint1
+        lift:
+          topic: /leader/joystick_controller_right/joint_trajectory
+          msg_type: trajectory_msgs/msg/JointTrajectory
+          joint_names:
+            - lift_joint
+        mobile:
+          topic: /cmd_vel
+          msg_type: geometry_msgs/msg/Twist
+          joint_names:
+            - linear_x
+            - linear_y
+            - angular_z

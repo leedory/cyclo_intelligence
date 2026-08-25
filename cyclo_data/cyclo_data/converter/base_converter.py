@@ -379,11 +379,31 @@ class ConversionConfig:
     selected_cameras: List[str] = field(default_factory=list)
     camera_rotations: Dict[str, int] = field(default_factory=dict)
     image_resize: Optional[Tuple[int, int]] = None  # (height, width)
+    # Per-camera output sizes take precedence over the legacy global resize.
+    # This allows landscape head cameras and portrait wrist cameras to retain
+    # their native aspect ratios in one dataset.
+    image_resize_by_camera: Dict[str, Tuple[int, int]] = field(
+        default_factory=dict
+    )
     selected_state_topics: List[str] = field(default_factory=list)
     selected_action_topics: List[str] = field(default_factory=list)
     selected_joints: List[str] = field(default_factory=list)
     # Audit metadata for the root info.json conversion_config snapshot.
     source_rosbags: List[str] = field(default_factory=list)
+
+    def image_resize_for_camera(
+        self, camera_name: str,
+    ) -> Optional[Tuple[int, int]]:
+        """Return this camera's output ``(height, width)`` resize, if any."""
+        resize = self.image_resize_by_camera.get(camera_name, self.image_resize)
+        if resize is None:
+            return None
+        height, width = int(resize[0]), int(resize[1])
+        if height <= 0 or width <= 0:
+            raise ValueError(
+                f"Invalid image resize for {camera_name}: {(height, width)}"
+            )
+        return height, width
 
 
 @dataclass
@@ -1289,6 +1309,12 @@ class RosbagToLerobotConverterBase:
                 list(self.config.image_resize)
                 if self.config.image_resize else None
             ),
+            "image_resize_by_camera": {
+                camera: list(resize)
+                for camera, resize in sorted(
+                    self.config.image_resize_by_camera.items()
+                )
+            },
             "selected_state_topics": list(self.config.selected_state_topics),
             "selected_action_topics": list(self.config.selected_action_topics),
             "selected_joints": list(self.config.selected_joints),
@@ -4063,7 +4089,7 @@ class RosbagToLerobotConverterBase:
             out_path = sync_output_dir / f"{cam_name}_synced.mp4"
             rotation_extra = int(ui_rotations.get(cam_name, 0) or 0)
             target_fps = int(self.config.fps)
-            image_resize = self.config.image_resize  # (height, width) or None
+            image_resize = self.config.image_resize_for_camera(cam_name)
             resize_key = (
                 list(image_resize) if image_resize else None
             )
@@ -5170,6 +5196,12 @@ class RosbagToLerobotConverterBase:
                     list(self.config.image_resize)
                     if self.config.image_resize else None
                 ),
+                'image_resize_by_camera': {
+                    camera: list(resize)
+                    for camera, resize in sorted(
+                        self.config.image_resize_by_camera.items()
+                    )
+                },
                 'selected_joint_state_topics': state_topics,
                 'primitive_instructions': [],
                 'selected_action_topics': action_topics,

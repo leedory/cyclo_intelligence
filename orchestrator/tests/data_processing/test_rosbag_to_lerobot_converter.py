@@ -3090,6 +3090,7 @@ class TestInfoJsonGeneration(unittest.TestCase):
                 "selected_cameras",
                 "output_dataset_name",
                 "image_resize",
+                "image_resize_by_camera",
                 "selected_joint_state_topics",
                 "primitive_instructions",
                 "selected_action_topics",
@@ -4357,6 +4358,31 @@ class TestRosbagToLerobotV30VideoConcat(unittest.TestCase):
     def test_direct_video_aggregation_rejects_resize(self):
         self.converter.config.image_resize = (240, 320)
 
+        self.assertFalse(
+            self.converter._can_use_direct_video_aggregation(
+                [Path(self.temp_dir) / "bag"]
+            )
+        )
+
+    def test_per_camera_resize_preserves_mixed_camera_orientations(self):
+        self.converter.config.image_resize = (224, 224)
+        self.converter.config.image_resize_by_camera = {
+            "cam_left_head": (480, 640),
+            "cam_left_wrist": (640, 480),
+        }
+
+        self.assertEqual(
+            self.converter.config.image_resize_for_camera("cam_left_head"),
+            (480, 640),
+        )
+        self.assertEqual(
+            self.converter.config.image_resize_for_camera("cam_left_wrist"),
+            (640, 480),
+        )
+        self.assertEqual(
+            self.converter.config.image_resize_for_camera("unconfigured"),
+            (224, 224),
+        )
         self.assertFalse(
             self.converter._can_use_direct_video_aggregation(
                 [Path(self.temp_dir) / "bag"]
