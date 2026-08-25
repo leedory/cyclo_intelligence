@@ -29,7 +29,7 @@ COMPOSE="docker compose -f ${SCRIPT_DIR}/docker-compose.yml"
     && COMPOSE="${COMPOSE} -f ${SCRIPT_DIR}/docker-compose.override.yml"
 
 MAIN_SERVICE="cyclo_intelligence"
-MAIN_CONTAINER="cyclo_intelligence"
+MAIN_CONTAINER="${CYCLO_MAIN_CONTAINER_NAME:-cyclo_intelligence}"
 LEROBOT_SERVICE="lerobot"
 LEROBOT_CONTAINER="${LEROBOT_CONTAINER_NAME:-lerobot_server}"
 GROOT_SERVICE="groot"
@@ -346,7 +346,7 @@ build_ui() {
 
     echo "[container.sh] Copying UI build into ${MAIN_CONTAINER} nginx root..."
     docker cp "${dir}/build/." "${MAIN_CONTAINER}:/usr/share/nginx/html/"
-    docker exec "$MAIN_CONTAINER" sh -c 'nginx -s reload 2>/dev/null || true'
+    docker exec "$MAIN_CONTAINER" sh -c '/command/s6-svc -r /run/service/nginx 2>/dev/null || nginx -s reload 2>/dev/null || true'
     echo "[container.sh] UI updated. Refresh the browser to load the new bundle."
 }
 

@@ -28,8 +28,8 @@ orchestrator:
             topic: /camera_right/camera_right/color/image_rect_raw/compressed
             msg_type: sensor_msgs/msg/CompressedImage
             rotation_deg: 270
-          cam_external:
-            topic: /camera_external/color/image_rect_raw/compressed
+          cam_right_head:
+            topic: /zed/zed_node/right/image_rect_color/compressed
             msg_type: sensor_msgs/msg/CompressedImage
 
         state:
@@ -124,3 +124,7 @@ orchestrator:
       recording:
         extra_topics:
           - /tf
+          - /zed/zed_node/left/camera_info
+          - /zed/zed_node/right/camera_info
+          - /camera_left/camera_left/color/camera_info
+          - /camera_right/camera_right/color/camera_info

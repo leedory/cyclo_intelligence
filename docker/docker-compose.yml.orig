@@ -94,10 +94,6 @@ services:
       # inside the container sees host-side edits. The container copy
       # at build time still lives in the image; this mount shadows it.
       - ..:/root/ros2_ws/src/cyclo_intelligence
-      # Keep the latest locally built UI bundle across container recreation.
-      # nginx writes cyclo-config.js into this root at startup, so this
-      # mount must remain writable.
-      - ../orchestrator/ui/build:/usr/share/nginx/html
       # URDF + mesh assets for the UI's 3D viewer. Source of truth is
       # shared/robot_configs/ (consolidated from the legacy
       # rosbag_recorder/config/ location — URDFs describe the robot,

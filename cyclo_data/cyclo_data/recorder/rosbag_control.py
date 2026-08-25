@@ -69,6 +69,10 @@ class RosbagControl:
             )
 
     def is_available(self) -> bool:
+        # cyclo_data and service_bag_recorder are started independently.
+        # If the latter comes up after this client, do not retain the
+        # one-time startup failure for the lifetime of the recorder.
+        self._service_available = self._send_command_client.service_is_ready()
         return self._service_available
 
     # ------------------------------------------------------------------

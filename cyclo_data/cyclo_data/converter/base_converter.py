@@ -1592,6 +1592,8 @@ class RosbagToLerobotConverterBase:
             if mp4_file.stem.endswith("_synced"):
                 continue
             camera_name = self._get_camera_name_for_video(mp4_file.stem)
+            if self.config.selected_cameras and camera_name not in self.config.selected_cameras:
+                continue
             video_files.setdefault(camera_name, mp4_file)
         return video_files
 
@@ -4420,6 +4422,8 @@ class RosbagToLerobotConverterBase:
                 if mp4_file.stem.endswith("_synced"):
                     continue
                 camera_name = self._get_camera_name_for_video(mp4_file.stem)
+                if self.config.selected_cameras and camera_name not in self.config.selected_cameras:
+                    continue
                 if camera_name not in video_files:
                     video_files[camera_name] = mp4_file
 

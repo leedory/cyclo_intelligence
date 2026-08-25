@@ -546,6 +546,11 @@ export default function SegmentPanel() {
       if (isInputFocused()) return;
       if (e.key === ' ' || e.code === 'Space') {
         if (canStartRecord) handleRecordStart();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (isRecording && !savingInProgress && !serverResetInProgress) {
+          handleSlotSave(isSingleMode ? 0 : activeSlotIndex);
+        }
       } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'x' || e.key === 'X')) {
         if (isRecording && !savingInProgress && !serverResetInProgress) {
           handleSlotSave(isSingleMode ? 0 : activeSlotIndex);

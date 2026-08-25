@@ -140,32 +140,6 @@ describe('SegmentPanel discard episode target', () => {
     );
   });
 
-  test('saves the active segment with Enter', async () => {
-    const { sendRecordCommand } = renderPanel({
-      taskOverrides: {
-        recordStatus: {
-          recordPhase: RecordPhase.RECORDING,
-          running: true,
-          currentEpisodeNumber: 7,
-          currentSubtaskIndex: 0,
-          subtaskCount: 2,
-          topicReceived: true,
-        },
-        slotToServerIdx: [-1, -1],
-        activeSlotIndex: 0,
-      },
-    });
-
-    fireEvent.keyUp(window, { key: 'Enter', code: 'Enter' });
-
-    await waitFor(() => {
-      expect(sendRecordCommand).toHaveBeenCalledWith(
-        'stop_segment',
-        expect.objectContaining({ segmentIndex: 0 })
-      );
-    });
-  });
-
   test('warns about stalled rosbag topics when starting a record segment', async () => {
     const { sendRecordCommand } = renderPanel({
       taskOverrides: {
