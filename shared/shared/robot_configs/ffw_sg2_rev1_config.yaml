@@ -23,14 +23,12 @@ orchestrator:
           cam_left_wrist:
             topic: /camera_left/camera_left/color/image_rect_raw/compressed
             msg_type: sensor_msgs/msg/CompressedImage
-            rotation_deg: 270
           cam_right_wrist:
             topic: /camera_right/camera_right/color/image_rect_raw/compressed
             msg_type: sensor_msgs/msg/CompressedImage
-            rotation_deg: 270
-          cam_external:
-            topic: /camera_external/color/image_rect_raw/compressed
-            msg_type: sensor_msgs/msg/CompressedImage
+          # cam_external:
+          #   topic: /camera_external/color/image_rect_raw/compressed
+          #   msg_type: sensor_msgs/msg/CompressedImage
 
         state:
           # Each entry contributes one slice of observation.state. Order
