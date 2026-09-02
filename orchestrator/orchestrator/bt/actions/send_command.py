@@ -297,7 +297,7 @@ class SendCommand(BaseAction):
                     f'(command={self.command_str}, model={self.model}, '
                     f'inference_mode={self.inference_mode}, '
                     f'acceleration_mode={self.acceleration_mode}, '
-                    f'publish_to_robot={self.inference_mode == "robot"})'
+                    f'publish_actions={self.inference_mode in {"isaac", "robot"}})'
                 )
                 if self.inference_mode == 'simulation':
                     self.log_warn(

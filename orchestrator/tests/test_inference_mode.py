@@ -35,6 +35,11 @@ class InferenceModeTests(unittest.TestCase):
 
         self.assertFalse(publish_to_robot_from_task_info(task_info))
 
+    def test_isaac_mode_publishes_actions_to_simulation_topics(self) -> None:
+        task_info = SimpleNamespace(inference_mode="isaac")
+
+        self.assertTrue(publish_to_robot_from_task_info(task_info))
+
     def test_tags_support_backward_compatible_mode(self) -> None:
         task_info = SimpleNamespace(tags=["inference_mode:robot"])
 

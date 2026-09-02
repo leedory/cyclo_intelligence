@@ -62,6 +62,16 @@ export function getRecordCommandServiceTimeoutMs(command, options = {}) {
     : DEFAULT_SERVICE_TIMEOUT_MS;
 }
 
+export function getInferenceCommandRates(inferenceMode, taskInfo = {}) {
+  if (String(inferenceMode || '').trim().toLowerCase() === 'isaac') {
+    return { controlHz: 15, inferenceHz: 15 };
+  }
+  return {
+    controlHz: Number(taskInfo.controlHz || 100),
+    inferenceHz: Number(taskInfo.inferenceHz || 15),
+  };
+}
+
 export function transformReplayDataResult(result = {}, bagPath = '') {
   return {
     success: result.success,
@@ -360,6 +370,7 @@ export function useRosServiceCaller() {
         );
         const imageResize = options.imageResize || null;
         const inferenceMode = options.inferenceMode || taskInfo.inferenceMode || 'simulation';
+        const inferenceRates = getInferenceCommandRates(inferenceMode, taskInfo);
         const policyPath = String(taskInfo.policyPath || '').trim();
         const accelerationMode = taskInfo.serviceType === 'groot'
           ? String(taskInfo.accelerationMode || 'pytorch').trim()
@@ -382,8 +393,8 @@ export function useRosServiceCaller() {
             policy_path: policyPath,
             record_inference_mode: Boolean(taskInfo.recordInferenceMode),
             tags: [`inference_mode:${inferenceMode}`],
-            control_hz: Number(taskInfo.controlHz || 100),
-            inference_hz: Number(taskInfo.inferenceHz || 15),
+            control_hz: inferenceRates.controlHz,
+            inference_hz: inferenceRates.inferenceHz,
             chunk_align_window_s: Number(
               taskInfo.chunkAlignWindowS !== '' && taskInfo.chunkAlignWindowS != null
                 ? taskInfo.chunkAlignWindowS

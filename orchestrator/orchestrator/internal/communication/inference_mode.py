@@ -10,6 +10,7 @@ from __future__ import annotations
 
 
 SIMULATION_MODE = "simulation"
+ISAAC_MODE = "isaac"
 ROBOT_MODE = "robot"
 
 
@@ -17,6 +18,8 @@ def normalize_inference_mode(value) -> str:
     mode = str(value or "").strip().lower()
     if mode in {ROBOT_MODE, "robot_mode", "publish", "publish_to_robot"}:
         return ROBOT_MODE
+    if mode in {ISAAC_MODE, "isaac_sim", "isaac_simulation"}:
+        return ISAAC_MODE
     return SIMULATION_MODE
 
 
@@ -31,6 +34,8 @@ def inference_mode_from_task_info(task_info) -> str:
         normalized = str(tag or "").strip().lower()
         if normalized in {"inference_mode:robot", "publish_to_robot:true"}:
             return ROBOT_MODE
+        if normalized in {"inference_mode:isaac", "publish_actions:true"}:
+            return ISAAC_MODE
         if normalized in {"inference_mode:simulation", "publish_to_robot:false"}:
             return SIMULATION_MODE
 
@@ -38,5 +43,10 @@ def inference_mode_from_task_info(task_info) -> str:
 
 
 def publish_to_robot_from_task_info(task_info) -> bool:
-    """Return true only when a command explicitly asks for robot publish."""
-    return inference_mode_from_task_info(task_info) == ROBOT_MODE
+    """Return whether the runtime may publish actions to its ROS command topics.
+
+    In the workstation stack ``isaac`` targets Cyclo Lab. The legacy
+    ``simulation`` value remains a non-publishing browser-preview mode and is
+    never emitted by the workstation deployment UI.
+    """
+    return inference_mode_from_task_info(task_info) in {ISAAC_MODE, ROBOT_MODE}

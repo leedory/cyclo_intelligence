@@ -22,24 +22,16 @@ import {
   MdPlayArrow,
   MdStop,
   MdDeleteOutline,
-  MdClose,
-  MdPrecisionManufacturing,
-  MdViewInAr,
-  MdWarningAmber,
 } from 'react-icons/md';
 import { useRosServiceCaller } from '../hooks/useRosServiceCaller';
 import Tooltip from './Tooltip';
 import { InferencePhase } from '../constants/taskPhases';
-import {
-  markLocalTaskInfoEdited,
-  selectInferenceTaskInfo,
-  setInferenceMode,
-  setInferenceStatus,
-} from '../features/tasks/taskSlice';
+import { selectInferenceTaskInfo, setInferenceStatus } from '../features/tasks/taskSlice';
 import { requiresInstruction } from '../constants/policyCapabilities';
 import usePolicyBackendStatus, {
   getPolicyBackendReadiness,
 } from '../hooks/usePolicyBackendStatus';
+import useSimulatorStatus, { waitForSimulatorReady } from '../hooks/useSimulatorStatus';
 
 const phaseGuideMessages = {
   [InferencePhase.READY]: 'Ready to start',
@@ -86,7 +78,7 @@ export default function InferenceControlPanel() {
   const [pressed, setPressed] = useState(null);
   const [lastPolicyPath, setLastPolicyPath] = useState('');
   const [spinnerIndex, setSpinnerIndex] = useState(0);
-  const [pendingRobotDeployIntent, setPendingRobotDeployIntent] = useState(null);
+  const [isDeploying, setIsDeploying] = useState(false);
 
   const { sendRecordCommand } = useRosServiceCaller();
 
@@ -113,6 +105,12 @@ export default function InferenceControlPanel() {
   const isBackendStartBlocked = shouldCheckBackend && !backendReadiness.ready;
   const isBackendWarming = isBackendStartBlocked &&
     (backendReadiness.state === 'checking' || backendReadiness.state === 'warming');
+  const {
+    status: simulatorStatus,
+    refreshStatus: refreshSimulatorStatus,
+    runCommand: runSimulatorCommand,
+  } = useSimulatorStatus({ intervalMs: 1000 });
+  const isSimulatorReady = ['ready', 'running'].includes(simulatorStatus.state);
 
   useEffect(() => {
     inferencePhaseRef.current = phase;
@@ -258,84 +256,84 @@ export default function InferenceControlPanel() {
   }, [executeCommand]);
 
   const handleStart = useCallback(async () => {
-    let readiness = backendReadiness;
-    if (!readiness.ready) {
-      const refreshedStatus = await refreshBackendStatus({ quiet: true });
-      readiness = getPolicyBackendReadiness(refreshedStatus);
-    }
-    if (!readiness.ready) {
-      const message = readiness.message || 'Policy backend is not ready yet';
-      if (readiness.state === 'warming' || readiness.state === 'checking') {
-        toast(message);
-      } else {
-        toast.error(message);
+    if (isDeploying) return;
+    setIsDeploying(true);
+    try {
+      let readiness = backendReadiness;
+      if (!readiness.ready) {
+        const refreshedStatus = await refreshBackendStatus({ quiet: true });
+        readiness = getPolicyBackendReadiness(refreshedStatus);
       }
-      return;
-    }
-
-    let startIntent;
-    if (isPaused && taskInfo.policyPath === lastPolicyPath) {
-      startIntent = {
-        commandName: 'Resume',
-        commandString: 'resume_inference',
-        policyPath: '',
-      };
-    } else {
-      const validation = validateTaskInfo();
-      if (!validation.isValid) {
-        toast.error(`Missing required fields: ${validation.missingFields.join(', ')}`);
+      if (!readiness.ready) {
+        const message = readiness.message || 'Policy backend is not ready yet';
+        if (readiness.state === 'warming' || readiness.state === 'checking') {
+          toast(message);
+        } else {
+          toast.error(message);
+        }
         return;
       }
-      startIntent = {
-        commandName: 'Start Inference',
-        commandString: 'start_inference',
-        policyPath: taskInfo.policyPath,
-      };
-    }
 
-    if (
-      startIntent.commandString === 'start_inference' &&
-      !(await ensureTensorRtReady())
-    ) {
-      return;
-    }
+      let startIntent;
+      if (isPaused && taskInfo.policyPath === lastPolicyPath) {
+        startIntent = {
+          commandName: 'Resume',
+          commandString: 'resume_inference',
+          policyPath: '',
+        };
+      } else {
+        const validation = validateTaskInfo();
+        if (!validation.isValid) {
+          toast.error(`Missing required fields: ${validation.missingFields.join(', ')}`);
+          return;
+        }
+        startIntent = {
+          commandName: 'Start Inference',
+          commandString: 'start_inference',
+          policyPath: taskInfo.policyPath,
+        };
+      }
 
-    const inferenceMode = taskInfo.inferenceMode || 'simulation';
-    if (inferenceMode === 'robot') {
-      setPendingRobotDeployIntent(startIntent);
-      return;
-    }
+      if (
+        startIntent.commandString === 'start_inference' &&
+        !(await ensureTensorRtReady())
+      ) {
+        return;
+      }
 
-    await executeStartIntent(startIntent, 'simulation');
+      try {
+        const launchStatus = await runSimulatorCommand('start', {
+          policy_path: taskInfo.policyPath,
+          ...(taskInfo.simulationProfile ? { profile: taskInfo.simulationProfile } : {}),
+        });
+        if (!['ready', 'running'].includes(launchStatus.state)) {
+          toast('Launching UI-launched simulation session…');
+        }
+        await waitForSimulatorReady();
+        await refreshSimulatorStatus({ quiet: true });
+      } catch (error) {
+        toast.error(`Isaac Sim Deploy failed: ${error.message}`);
+        return;
+      }
+
+      await executeStartIntent(startIntent, 'isaac');
+    } finally {
+      setIsDeploying(false);
+    }
   }, [
+    isDeploying,
+    refreshSimulatorStatus,
+    runSimulatorCommand,
     backendReadiness,
     refreshBackendStatus,
     isPaused,
     taskInfo.policyPath,
-    taskInfo.inferenceMode,
+    taskInfo.simulationProfile,
     lastPolicyPath,
     executeStartIntent,
     ensureTensorRtReady,
     validateTaskInfo,
   ]);
-
-  const handleConfirmRobotDeploy = useCallback(async () => {
-    const intent = pendingRobotDeployIntent;
-    setPendingRobotDeployIntent(null);
-    await executeStartIntent(intent, 'robot');
-  }, [executeStartIntent, pendingRobotDeployIntent]);
-
-  const handleUseSimDeploy = useCallback(async () => {
-    const intent = pendingRobotDeployIntent;
-    setPendingRobotDeployIntent(null);
-    dispatch(setInferenceMode('simulation'));
-    dispatch(markLocalTaskInfoEdited({ source: 'inference' }));
-    await executeStartIntent(intent, 'simulation');
-  }, [dispatch, executeStartIntent, pendingRobotDeployIntent]);
-
-  const handleCloseRobotDeployWarning = useCallback(() => {
-    setPendingRobotDeployIntent(null);
-  }, []);
 
   const handleStop = useCallback(async () => {
     await executeCommand('Stop', 'stop_inference');
@@ -346,23 +344,36 @@ export default function InferenceControlPanel() {
     setLastPolicyPath('');
   }, [executeCommand]);
 
-  const startEnabled = shouldCheckBackend && backendReadiness.ready;
+  const startEnabled = shouldCheckBackend && backendReadiness.ready &&
+    !simulatorStatus.training_active && !isDeploying;
   const stopEnabled = isInferencing;
   const clearEnabled = isModelLoaded;
-  const startDescription = isBackendStartBlocked
+  const startDescription = isDeploying
+    ? 'Isaac Sim Deploy is starting'
+    : simulatorStatus.training_active
+    ? 'Isaac Sim Deploy is disabled while training is active'
+    : !isSimulatorReady
+    ? 'Start inference and launch Isaac Sim from the policy contract'
+    : isBackendStartBlocked
     ? backendReadiness.message
     : isPaused
       ? 'Resume inference'
       : 'Start inference';
-  const guideMessage = isBackendStartBlocked
+  const guideMessage = isDeploying
+    ? 'Launching Isaac Sim…'
+    : simulatorStatus.training_active
+    ? 'Training active'
+    : !isSimulatorReady
+    ? 'Start launches Isaac Sim'
+    : isBackendStartBlocked
     ? backendReadiness.message
     : phaseGuideMessages[phase] || '';
-  const showGuideSpinner = isInferencing || isLoading || isBackendWarming;
+  const showGuideSpinner = isDeploying || isInferencing || isLoading || isBackendWarming;
 
   const handleKeyAction = useCallback(
     (e) => {
       if (e.key === ' ' || e.key === 'Spacebar' || e.code === 'Space') {
-        if (startEnabled) return 'Start';
+        if (startEnabled) return 'Isaac Sim Deploy';
       }
       if (
         (e.ctrlKey || e.metaKey) &&
@@ -401,7 +412,7 @@ export default function InferenceControlPanel() {
       setPressed(null);
       if (isInputFocused()) return;
       const action = handleKeyAction(e);
-      if (action === 'Start') handleStart();
+      if (action === 'Isaac Sim Deploy') handleStart();
       else if (action === 'Stop') handleStop();
       else if (action === 'Clear') handleClear();
     };
@@ -455,7 +466,7 @@ export default function InferenceControlPanel() {
 
   const controlButtons = [
     {
-      label: 'Start',
+      label: 'Isaac Sim Deploy',
       icon: MdPlayArrow,
       color: '#1976d2',
       enabled: startEnabled,
@@ -484,7 +495,6 @@ export default function InferenceControlPanel() {
   ];
 
   return (
-    <>
       <div className={classBody}>
         <span className="text-lg font-semibold text-gray-500 whitespace-nowrap px-1 shrink-0">Inference</span>
         <div className="w-px h-2/3 bg-gray-300 shrink-0"></div>
@@ -543,61 +553,5 @@ export default function InferenceControlPanel() {
           </>
         )}
       </div>
-
-      {pendingRobotDeployIntent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4">
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="real-robot-deploy-title"
-            className="w-full max-w-md rounded-lg bg-white shadow-2xl border border-orange-200 overflow-hidden"
-          >
-            <div className="flex items-center justify-between gap-3 px-4 py-3 bg-orange-50 border-b border-orange-200">
-              <div className="flex items-center gap-2 min-w-0">
-                <MdWarningAmber className="text-orange-600 shrink-0" size={22} />
-                <h2 id="real-robot-deploy-title" className="text-base font-bold text-orange-900 truncate">
-                  Real Robot Deploy
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={handleCloseRobotDeployWarning}
-                className="w-8 h-8 rounded-md flex items-center justify-center text-orange-700 hover:bg-orange-100 focus:outline-none focus:ring-2 focus:ring-orange-300"
-                aria-label="Close deploy warning"
-              >
-                <MdClose size={20} />
-              </button>
-            </div>
-            <div className="px-4 py-4 text-sm text-gray-700 space-y-3">
-              <p className="font-semibold text-gray-900">
-                Real Robot Deploy sends policy actions to the physical robot.
-              </p>
-              <p>
-                Keep people clear of the robot workspace before continuing.
-                For first-time inference, test with 3D Sim Deploy before switching to Real Robot Deploy.
-              </p>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-2 px-4 py-3 bg-gray-50 border-t border-gray-200">
-              <button
-                type="button"
-                onClick={handleConfirmRobotDeploy}
-                className="flex-1 h-10 rounded-md bg-orange-600 text-white font-semibold hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-300 flex items-center justify-center gap-1.5"
-              >
-                <MdPrecisionManufacturing size={18} />
-                Real Robot Deploy
-              </button>
-              <button
-                type="button"
-                onClick={handleUseSimDeploy}
-                className="flex-1 h-10 rounded-md bg-emerald-600 text-white font-semibold hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-300 flex items-center justify-center gap-1.5"
-              >
-                <MdViewInAr size={18} />
-                3D Sim Deploy
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
   );
 }

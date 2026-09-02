@@ -37,6 +37,24 @@ jest.mock('../hooks/usePolicyBackendStatus', () => ({
   getPolicyBackendReadiness: (status) => status,
 }));
 
+const mockRunSimulatorCommand = jest.fn();
+const mockRefreshSimulatorStatus = jest.fn();
+const mockWaitForSimulatorReady = jest.fn();
+
+jest.mock('../hooks/useSimulatorStatus', () => ({
+  __esModule: true,
+  default: () => ({
+    status: {
+      state: 'ready',
+      observation_sequence: 1,
+      camera_sequence: 1,
+    },
+    refreshStatus: mockRefreshSimulatorStatus,
+    runCommand: mockRunSimulatorCommand,
+  }),
+  waitForSimulatorReady: (...args) => mockWaitForSimulatorReady(...args),
+}));
+
 const renderPanel = ({
   inferenceMode = 'robot',
   inferencePhase = InferencePhase.READY,
@@ -68,13 +86,13 @@ const renderPanel = ({
         },
         inferenceTaskInfo: {
           ...initialTasks.inferenceTaskInfo,
-          policyPath: '/policy_checkpoints/lerobot/model',
+          policyPath: '/workspace/model/lerobot/model',
           inferenceMode,
           ...inferenceOverrides,
         },
         taskInfo: {
           ...initialTasks.taskInfo,
-          policyPath: '/policy_checkpoints/lerobot/model',
+          policyPath: '/workspace/model/lerobot/model',
           inferenceMode,
           ...taskOverrides,
         },
@@ -102,43 +120,37 @@ const renderPanel = ({
 describe('InferenceControlPanel deploy safety', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRunSimulatorCommand.mockResolvedValue({
+      state: 'ready',
+      environment: 'task_000458',
+      observation_sequence: 1,
+      camera_sequence: 1,
+    });
+    mockRefreshSimulatorStatus.mockResolvedValue({ state: 'ready' });
+    mockWaitForSimulatorReady.mockResolvedValue({ state: 'ready' });
   });
 
-  test('shows a warning instead of starting immediately for Real Robot Deploy', async () => {
-    const { sendRecordCommand } = renderPanel({ inferenceMode: 'robot' });
+  test('one click launches the policy contract environment then starts Isaac inference', async () => {
+    const { sendRecordCommand } = renderPanel({ inferenceMode: 'simulation' });
 
     fireEvent.click(screen.getByRole('button', { name: /start inference/i }));
-
-    expect(await screen.findByRole('dialog', { name: /real robot deploy/i }))
-      .toBeInTheDocument();
-    expect(sendRecordCommand).not.toHaveBeenCalled();
-  });
-
-  test('starts robot deploy only after explicit confirmation', async () => {
-    const { sendRecordCommand } = renderPanel({ inferenceMode: 'robot' });
-
-    fireEvent.click(screen.getByRole('button', { name: /start inference/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /^Real Robot Deploy$/i }));
 
     await waitFor(() => {
+      expect(mockRunSimulatorCommand).toHaveBeenCalledWith('start', {
+        policy_path: '/workspace/model/lerobot/model',
+      });
+      expect(mockWaitForSimulatorReady).toHaveBeenCalled();
       expect(sendRecordCommand).toHaveBeenCalledWith('start_inference', {
-        inferenceMode: 'robot',
+        inferenceMode: 'isaac',
       });
     });
   });
 
-  test('can switch the pending start to 3D Sim Deploy from the warning', async () => {
-    const { store, sendRecordCommand } = renderPanel({ inferenceMode: 'robot' });
+  test('does not expose real robot or browser-preview deployment controls', () => {
+    renderPanel({ inferenceMode: 'robot' });
 
-    fireEvent.click(screen.getByRole('button', { name: /start inference/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /^3D Sim Deploy$/i }));
-
-    await waitFor(() => {
-      expect(store.getState().tasks.taskInfo.inferenceMode).toBe('simulation');
-      expect(sendRecordCommand).toHaveBeenCalledWith('start_inference', {
-        inferenceMode: 'simulation',
-      });
-    });
+    expect(screen.queryByText(/Real Robot Deploy/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/3D Sim Deploy/i)).not.toBeInTheDocument();
   });
 
   test('keeps loading state when start command times out after LOADING begins', async () => {
@@ -155,7 +167,7 @@ describe('InferenceControlPanel deploy safety', () => {
 
     await waitFor(() => {
       expect(sendRecordCommand).toHaveBeenCalledWith('start_inference', {
-        inferenceMode: 'simulation',
+        inferenceMode: 'isaac',
       });
     });
 
@@ -226,7 +238,7 @@ describe('InferenceControlPanel deploy safety', () => {
 
     await waitFor(() => {
       expect(sendRecordCommand).toHaveBeenCalledWith('start_inference', {
-        inferenceMode: 'simulation',
+        inferenceMode: 'isaac',
       });
     });
   });

@@ -23,9 +23,9 @@ bool include_robotis_license
 # detection) for backward compatibility with old UI builds.
 string service_type
 
-# Inference output mode. "simulation" runs policy inference and publishes
-# preview-only trajectories for the 3D viewer. "robot" permits the policy
-# container Main runtime to publish robot command topics.
+# Inference output mode. "simulation" is the legacy non-publishing preview;
+# "isaac" publishes actions to a managed Cyclo Lab session; "robot" publishes
+# actions to a physical robot runtime.
 string inference_mode
 
 # Action chunk request scheduling. "async" requests the next chunk while the

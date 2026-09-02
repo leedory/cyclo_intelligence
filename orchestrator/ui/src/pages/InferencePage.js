@@ -15,22 +15,19 @@
 // Author: Kiwoong Park
 
 import React, { useState, useEffect } from 'react';
-import { shallowEqual, useSelector, useDispatch } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import clsx from 'clsx';
 import toast, { useToasterStore } from 'react-hot-toast';
 import {
   MdKeyboardDoubleArrowLeft,
   MdKeyboardDoubleArrowRight,
-  MdViewInAr,
 } from 'react-icons/md';
 import InferenceControlPanel from '../components/InferenceControlPanel';
 import HeartbeatStatus from '../components/HeartbeatStatus';
 import InlineSystemStatus from '../components/InlineSystemStatus';
-import ImageGrid from '../components/ImageGrid';
-import RobotViewer3D from '../components/RobotViewer3D';
+import SimulationCameraGrid from '../components/SimulationCameraGrid';
 import InferencePanel from '../components/InferencePanel';
 import RecordTopicMonitor from '../components/RecordTopicMonitor';
-import { selectInferenceTaskInfo } from '../features/tasks/taskSlice';
 import { setIsFirstLoadFalse } from '../features/ui/uiSlice';
 import { useRosServiceCaller } from '../hooks/useRosServiceCaller';
 
@@ -44,10 +41,7 @@ export default function InferencePage({ isActive = true }) {
 
   const robotType = useSelector((state) => state.tasks.robotType);
   const joystickMode = useSelector((state) => state.tasks.joystickMode);
-  const taskInfo = useSelector(selectInferenceTaskInfo, shallowEqual);
-
   const [isRightPanelCollapsed, setIsRightPanelCollapsed] = useState(false);
-  const [show3DViewer, setShow3DViewer] = useState(true);
 
   const isFirstLoad = useSelector((state) => state.ui.isFirstLoad.inference);
 
@@ -68,9 +62,6 @@ export default function InferencePage({ isActive = true }) {
       sendRecordCommand('refresh_topics').catch(() => {});
     }
   }, [isActive, sendRecordCommand]);
-
-  const inferenceMode = taskInfo.inferenceMode || 'simulation';
-  const isRobotMode = inferenceMode === 'robot';
 
   const classMainContainer = 'h-full flex flex-col overflow-hidden';
   const classContentsArea = 'flex-1 flex min-h-0 pt-0 px-0 justify-center items-start';
@@ -170,7 +161,7 @@ export default function InferencePage({ isActive = true }) {
     <div className={classMainContainer}>
       <div className={classContentsArea}>
         <div className={classLeftArea}>
-          <div className="relative flex-[5] min-h-0 overflow-hidden pt-20">
+          <div className="relative flex-[8] min-h-0 overflow-hidden pt-20">
             <div className={classTopBar}>
               <div className={classRobotTypeContainer}>
                 <div className={classRobotType}>Robot Type</div>
@@ -191,33 +182,12 @@ export default function InferencePage({ isActive = true }) {
             <div className={classHeartbeatStatus}>
               <HeartbeatStatus />
             </div>
-            <ImageGrid isActive={isActive} />
+            <SimulationCameraGrid isActive={isActive} />
           </div>
-          <div className="flex-[4] min-h-[120px] flex flex-row items-center justify-center mx-1 gap-2 h-full relative">
-            {show3DViewer && (
-              <div className="h-[85%] rounded-2xl overflow-hidden relative" style={{ aspectRatio: '4/3' }}>
-                <RobotViewer3D
-                  mode="live"
-                  showSourceSelector
-                  defaultVisualizationSource={isRobotMode ? 'state' : 'action'}
-                />
-              </div>
-            )}
+          <div className="flex-[2] min-h-[120px] flex flex-row items-center justify-center mx-1 gap-2 h-full relative">
             <div className="h-[85%]" style={{ aspectRatio: '4/3' }}>
               <RecordTopicMonitor />
             </div>
-            <button
-              onClick={() => setShow3DViewer(!show3DViewer)}
-              className={clsx(
-                'absolute top-2 left-2 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors shadow-md border',
-                show3DViewer
-                  ? 'bg-indigo-500/90 text-white border-indigo-400 backdrop-blur-sm'
-                  : 'bg-white/90 text-gray-600 border-gray-100 backdrop-blur-sm hover:bg-gray-50'
-              )}
-            >
-              <MdViewInAr size={18} />
-              3D
-            </button>
           </div>
         </div>
         <div className={classRightPanelArea}>

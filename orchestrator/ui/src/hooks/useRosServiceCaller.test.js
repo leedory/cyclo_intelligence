@@ -1,7 +1,24 @@
 import {
   getRecordCommandServiceTimeoutMs,
+  getInferenceCommandRates,
   transformReplayDataResult,
 } from './useRosServiceCaller';
+
+describe('getInferenceCommandRates', () => {
+  test('locks Isaac action and policy requests to 15 Hz', () => {
+    expect(getInferenceCommandRates('isaac', {
+      controlHz: 100,
+      inferenceHz: 30,
+    })).toEqual({ controlHz: 15, inferenceHz: 15 });
+  });
+
+  test('preserves configured rates for non-Isaac modes', () => {
+    expect(getInferenceCommandRates('robot', {
+      controlHz: 100,
+      inferenceHz: 15,
+    })).toEqual({ controlHz: 100, inferenceHz: 15 });
+  });
+});
 
 describe('getRecordCommandServiceTimeoutMs', () => {
   test('does not time out recording save commands', () => {

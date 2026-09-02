@@ -84,6 +84,18 @@ sys.modules[_NAVIGATION_SPEC.name] = _navigation_module
 _NAVIGATION_SPEC.loader.exec_module(_navigation_module)
 navigation_router = _navigation_module.router
 
+_SIMULATOR_PATH = Path(__file__).resolve().with_name("simulator.py")
+_SIMULATOR_SPEC = importlib.util.spec_from_file_location(
+    "supervisor_api.simulator",
+    _SIMULATOR_PATH,
+)
+if _SIMULATOR_SPEC is None or _SIMULATOR_SPEC.loader is None:
+    raise ImportError(f"Cannot load simulator router from {_SIMULATOR_PATH}")
+_simulator_module = importlib.util.module_from_spec(_SIMULATOR_SPEC)
+sys.modules[_SIMULATOR_SPEC.name] = _simulator_module
+_SIMULATOR_SPEC.loader.exec_module(_simulator_module)
+simulator_router = _simulator_module.router
+
 
 logger = logging.getLogger("supervisor_api")
 
@@ -1077,6 +1089,7 @@ app = FastAPI(
 )
 
 _include_router_with_eager_routes(app, navigation_router)
+_include_router_with_eager_routes(app, simulator_router)
 
 
 @app.get("/health", response_model=HealthResponse)

@@ -22,14 +22,12 @@ import {
   MdFolderOpen,
   MdHourglassEmpty,
   MdInfoOutline,
-  MdPrecisionManufacturing,
   MdSync,
-  MdViewInAr,
-  MdWarningAmber,
 } from 'react-icons/md';
 import FileBrowserModal from './FileBrowserModal';
 import InferenceModelSelector from './InferenceModelSelector';
 import PolicyBackendControl from './PolicyBackendControl';
+import SimulationControlPanel from './SimulationControlPanel';
 import TrtEngineControl from './TrtEngineControl';
 import Tooltip from './Tooltip';
 import { InferencePhase } from '../constants/taskPhases';
@@ -41,7 +39,6 @@ import {
   markInferenceTaskInfoSyncPending,
   markInferenceTaskInfoSyncSuccess,
   selectInferenceTaskInfo,
-  setInferenceMode,
   setInferenceTaskInfo,
 } from '../features/tasks/taskSlice';
 import { useRosServiceCaller } from '../hooks/useRosServiceCaller';
@@ -68,8 +65,6 @@ const InferencePanel = () => {
   const isTaskRunning = inferenceStatus.inferencePhase !== InferencePhase.READY;
   const isInferencing =
     inferenceStatus.inferencePhase === InferencePhase.INFERENCING;
-  const inferenceMode = info.inferenceMode || 'simulation';
-  const isRobotMode = inferenceMode === 'robot';
   const actionRequestMode =
     String(info.actionRequestMode || '').trim().toLowerCase() === 'sync'
       ? 'sync'
@@ -77,12 +72,6 @@ const InferencePanel = () => {
   const isGrootModel = info.serviceType === 'groot';
   const isTensorRtEnabled = info.accelerationMode === 'tensorrt_dit';
   const trtTaskInstruction = (info.taskInstruction?.[0] || '').trim();
-  const isModeSwitchLocked =
-    inferenceStatus.inferencePhase === InferencePhase.LOADING;
-  const isModelActive = [
-    InferencePhase.INFERENCING,
-    InferencePhase.PAUSED,
-  ].includes(inferenceStatus.inferencePhase);
   const disabled = isTaskRunning;
   const [isEditable, setIsEditable] = useState(!disabled);
   const [isUpdatingInstruction, setIsUpdatingInstruction] = useState(false);
@@ -171,34 +160,6 @@ const InferencePanel = () => {
     taskInfoSync.dirty,
     taskSyncKey,
   ]);
-
-  const handleDeployModeChange = useCallback(
-    async (mode) => {
-      if (mode === inferenceMode || isModeSwitchLocked) return;
-
-      if (isModelActive) {
-        const result = await sendRecordCommand('finish').catch((error) => {
-          toast.error(`Deploy target reset failed: ${error.message || error}`);
-          return null;
-        });
-        if (!result || result.success === false) {
-          toast.error(result?.message || 'Inference reset failed');
-          return;
-        }
-        toast('Inference reset before deploy target switch');
-      }
-
-      dispatch(setInferenceMode(mode));
-      dispatch(markLocalTaskInfoEdited({ source: 'inference' }));
-    },
-    [
-      dispatch,
-      inferenceMode,
-      isModeSwitchLocked,
-      isModelActive,
-      sendRecordCommand,
-    ]
-  );
 
   const currentInstruction = (info.taskInstruction?.[0] || '').trim();
   const canUpdateInstruction =
@@ -322,50 +283,6 @@ const InferencePanel = () => {
     }
   );
 
-  const classTextInput = clsx(
-    'text-sm',
-    'w-full',
-    'h-8',
-    'p-2',
-    'border',
-    'border-gray-300',
-    'rounded-md',
-    'focus:outline-none',
-    'focus:ring-2',
-    'focus:ring-blue-500',
-    'focus:border-transparent',
-    {
-      'bg-gray-100 cursor-not-allowed': !isEditable,
-      'bg-white': isEditable,
-    }
-  );
-
-  const deployButtonClass = (active, danger = false) => clsx(
-    'h-9',
-    'min-w-0',
-    'px-2',
-    'rounded-md',
-    'flex',
-    'items-center',
-    'justify-center',
-    'gap-1.5',
-    'text-xs',
-    'font-semibold',
-    'whitespace-nowrap',
-    'transition-colors',
-    'focus:outline-none',
-    'focus:ring-2',
-    active
-      ? danger
-        ? 'bg-orange-500 text-white focus:ring-orange-300'
-        : 'bg-emerald-500 text-white focus:ring-emerald-300'
-      : 'bg-white text-gray-600 hover:bg-gray-50 focus:ring-gray-300 border border-gray-200',
-    {
-      'opacity-50 cursor-not-allowed': isModeSwitchLocked,
-      'cursor-pointer': !isModeSwitchLocked,
-    }
-  );
-
   const actionModeButtonClass = (active) => clsx(
     'h-8',
     'min-w-0',
@@ -402,44 +319,7 @@ const InferencePanel = () => {
         serviceType={info.serviceType}
       />
 
-      <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-2">
-        <div className="flex items-center justify-between gap-2 mb-1.5">
-          <span className="text-sm font-medium text-gray-600">Deploy Target</span>
-          <span className={clsx(
-            'inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-semibold whitespace-nowrap',
-            isRobotMode
-              ? 'bg-orange-100 text-orange-700'
-              : 'bg-emerald-100 text-emerald-700'
-          )}>
-            {isRobotMode ? <MdWarningAmber size={14} /> : <MdViewInAr size={14} />}
-            {isRobotMode ? 'Commands Enabled' : 'Commands Blocked'}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-1">
-          <button
-            type="button"
-            onClick={() => handleDeployModeChange('simulation')}
-            disabled={isModeSwitchLocked}
-            className={deployButtonClass(!isRobotMode)}
-            aria-label="Use 3D Sim Deploy"
-            title="3D Sim Deploy"
-          >
-            <MdViewInAr size={17} className="shrink-0" />
-            <span className="truncate">3D Sim Deploy</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleDeployModeChange('robot')}
-            disabled={isModeSwitchLocked}
-            className={deployButtonClass(isRobotMode, true)}
-            aria-label="Use Real Robot Deploy"
-            title="Real Robot Deploy"
-          >
-            <MdPrecisionManufacturing size={17} className="shrink-0" />
-            <span className="truncate">Real Robot Deploy</span>
-          </button>
-        </div>
-      </div>
+      <SimulationControlPanel />
 
       {/* Edit mode indicator */}
       <div
@@ -453,7 +333,7 @@ const InferencePanel = () => {
         ) : (
           <div className="leading-tight">
             <div>🔒 Read only</div>
-            <div className="text-xs mt-1 opacity-80">task is running or robot is not connected</div>
+            <div className="text-xs mt-1 opacity-80">policy session is active</div>
           </div>
         )}
       </div>
@@ -592,46 +472,15 @@ const InferencePanel = () => {
         </div>
       </div>
 
-      <div className={clsx('flex', 'items-center', 'mb-2.5')}>
-        <div className={clsx(classLabel, 'flex', 'items-center', 'gap-1')}>
-          <Tooltip content="Model output rate. Match training data rate." position="bottom">
-            <MdInfoOutline className="text-gray-400 hover:text-gray-600 cursor-help" size={14} />
-          </Tooltip>
-          <span>Inference Hz</span>
+      <div className="mb-2.5 grid grid-cols-2 gap-2 rounded-md border border-gray-200 bg-gray-50 p-2 text-xs">
+        <div>
+          <div className="text-gray-500">Policy cadence</div>
+          <div className="font-semibold text-gray-800">15 Hz</div>
         </div>
-        <input
-          className={classTextInput}
-          type="number"
-          step="1"
-          min="1"
-          value={info.inferenceHz || ''}
-          onChange={(e) => {
-            const v = e.target.value;
-            handleChange('inferenceHz', v === '' ? '' : Number(v));
-          }}
-          disabled={!isEditable}
-        />
-      </div>
-
-      <div className={clsx('flex', 'items-center', 'mb-2.5')}>
-        <div className={clsx(classLabel, 'flex', 'items-center', 'gap-1')}>
-          <Tooltip content="Rate of commands sent to the robot." position="bottom">
-            <MdInfoOutline className="text-gray-400 hover:text-gray-600 cursor-help" size={14} />
-          </Tooltip>
-          <span>Control Hz</span>
+        <div>
+          <div className="text-gray-500">Isaac physics</div>
+          <div className="font-semibold text-gray-800">30 Hz</div>
         </div>
-        <input
-          className={classTextInput}
-          type="number"
-          step="5"
-          min="1"
-          value={info.controlHz || ''}
-          onChange={(e) => {
-            const v = e.target.value;
-            handleChange('controlHz', v === '' ? '' : Number(v));
-          }}
-          disabled={!isEditable}
-        />
       </div>
 
       <FileBrowserModal

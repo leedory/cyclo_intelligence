@@ -117,6 +117,7 @@ const inferenceTaskInfoInitialState = {
   serviceType: 'lerobot',
   policyType: 'act',
   inferenceMode: 'simulation',
+  simulationProfile: '',
   actionRequestMode: 'async',
   accelerationMode: 'pytorch',
   accelerationEnginePath: '',
@@ -293,6 +294,9 @@ const applyInferenceTaskInfo = (state, taskInfo = {}) => {
     inferenceMode:
       String(taskInfo.inferenceMode ?? state.inferenceTaskInfo.inferenceMode ?? 'simulation') ||
       'simulation',
+    simulationProfile: String(
+      taskInfo.simulationProfile ?? state.inferenceTaskInfo.simulationProfile ?? ''
+    ),
     actionRequestMode:
       String(
         taskInfo.actionRequestMode ?? state.inferenceTaskInfo.actionRequestMode ?? ''
