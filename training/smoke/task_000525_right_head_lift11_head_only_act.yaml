@@ -1,0 +1,151 @@
+task:
+  id: task_000525
+  robot_type: ffw_sg2_rev1
+  instruction: Pick the green coffee can out of the cabinet, carry it to the dining table, place it on the mat, and return to the home pose.
+
+policy_io:
+  fps: 15
+  components:
+    arm_left: [arm_l_joint1, arm_l_joint2, arm_l_joint3, arm_l_joint4, arm_l_joint5, arm_l_joint6, arm_l_joint7, gripper_l_joint1]
+    arm_right: [arm_r_joint1, arm_r_joint2, arm_r_joint3, arm_r_joint4, arm_r_joint5, arm_r_joint6, arm_r_joint7, gripper_r_joint1]
+    head: [head_joint1, head_joint2]
+    lift: [lift_joint]
+    mobile: [linear_x, linear_y, angular_z]
+  state_components: [arm_right, head, lift]
+  action_components: [arm_right, head, lift]
+  inactive_actions:
+    arm_left: hold_current
+    mobile: hold_current
+  camera_inputs: [head]
+  cameras:
+    head:
+      key: observation.images.rgb.cam_left_head
+      source: cam_left_head
+      width: 672
+      height: 376
+      orientation: landscape
+      upright: true
+    left_wrist:
+      key: observation.images.rgb.cam_left_wrist
+      source: cam_left_wrist
+      width: 480
+      height: 640
+      orientation: portrait
+      upright: true
+    right_wrist:
+      key: observation.images.rgb.cam_right_wrist
+      source: cam_right_wrist
+      width: 480
+      height: 640
+      orientation: portrait
+      upright: true
+
+dataset:
+  repo_id: robotis/task_000525_contract_smoke_right_head_lift_11d
+  root: /workspace/dataset/robotis/task_000525_contract_smoke_right_head_lift_11d
+  episodes: null
+  eval_split: 0.0
+  use_imagenet_stats: true
+  video_backend: torchcodec
+  return_uint8: false
+  image_transforms:
+    enable: true
+    max_num_transforms: 2
+    random_order: false
+    transforms:
+      brightness:
+        weight: 1
+        type: ColorJitter
+        kwargs:
+          brightness: [0.95, 1.05]
+      affine:
+        weight: 1
+        type: RandomAffine
+        kwargs:
+          degrees: [-2, 2]
+          translate: [0.01, 0.01]
+
+policy:
+  type: act
+  n_obs_steps: 1
+  chunk_size: 45
+  n_action_steps: 45
+  normalization:
+    VISUAL: MEAN_STD
+    STATE: MEAN_STD
+    ACTION: MEAN_STD
+  vision_backbone: resnet18
+  pretrained_backbone_weights: ResNet18_Weights.IMAGENET1K_V1
+  replace_final_stride_with_dilation: false
+  pre_norm: false
+  dim_model: 512
+  n_heads: 8
+  dim_feedforward: 3200
+  feedforward_activation: relu
+  n_encoder_layers: 4
+  n_decoder_layers: 1
+  use_vae: true
+  latent_dim: 32
+  n_vae_encoder_layers: 4
+  temporal_ensemble_coeff: null
+  dropout: 0.1
+  kl_weight: 10.0
+  device: cuda
+  inference_amp: false
+  push_to_hub: false
+  repo_id: null
+
+optimizer:
+  mode: policy_preset
+  policy_preset:
+    lr: 0.00001
+    lr_backbone: 0.00001
+    weight_decay: 0.0001
+  custom:
+    type: adamw
+    lr: 0.00001
+    weight_decay: 0.0001
+    grad_clip_norm: 10.0
+    betas: [0.9, 0.999]
+    eps: 0.00000001
+
+scheduler:
+  type: none
+  num_warmup_steps: 0
+
+state_noise:
+  enabled: true
+  space: normalized
+  distribution: gaussian
+  std: 0.01
+  std_by_feature: {}
+
+training:
+  job_name: task_000525_right_head_lift11_head_only_smoke
+  output_dir: /workspace/model/lerobot/smoke/task_000525_right_head_lift11_head_only_250
+  steps: 250
+  batch_size: 16
+  num_workers: 4
+  prefetch_factor: 4
+  persistent_workers: true
+  seed: 1000
+  cudnn_deterministic: false
+  mixed_precision: "no"
+  tolerance_s: 0.0001
+  save_checkpoint: true
+  save_freq: 250
+  log_freq: 25
+  env_eval_freq: 0
+  eval_steps: 0
+  max_eval_samples: 0
+  resume: false
+  resume_config: null
+
+wandb:
+  enable: false
+  project: cyclo-sg2-act
+
+simulation:
+  environment: Cyclo-Real-Showroom-Task000525-FFW-SG2-v0
+  randomized_environment: Cyclo-Real-Showroom-Task000525-Random-FFW-SG2-v0
+  default_reset: deterministic
