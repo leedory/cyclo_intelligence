@@ -128,6 +128,15 @@ class IoMappingContractTest(unittest.TestCase):
             def wait_for_ready(self, timeout):
                 return True
 
+            def is_image_ready(self, name):
+                return name == "cam_left_head"
+
+            def is_joint_ready(self, name):
+                return name == "follower_arm"
+
+            def is_sensor_ready(self, name):
+                return False
+
         contract = PolicyContract(
             task_id="task",
             robot_type="ffw_sg2_rev1",
@@ -155,6 +164,42 @@ class IoMappingContractTest(unittest.TestCase):
 
         self.assertEqual(FakeRobotClient.requested, ("cam_left_head",))
         self.assertEqual(mapper._robot.camera_names, ["cam_left_head"])
+
+    def test_contract_readiness_ignores_unselected_joint_groups_and_sensors(self):
+        class FakeRobot:
+            def is_image_ready(self, name):
+                return name == "cam_left_head"
+
+            def is_joint_ready(self, name):
+                return name == "follower_arm_right"
+
+            def is_sensor_ready(self, name):
+                return False
+
+        sources = [
+            contract_io.StateSource("arm_r_joint1", "joint", "follower_arm_right", 0),
+            contract_io.StateSource("head_joint1", "joint", "follower_head", 0),
+        ]
+        robot = FakeRobot()
+
+        self.assertEqual(
+            contract_io.missing_contract_inputs(robot, ["cam_left_head"], sources),
+            ["joint:follower_head"],
+        )
+        self.assertNotIn(
+            "joint:follower_arm_left",
+            contract_io.missing_contract_inputs(robot, ["cam_left_head"], sources),
+        )
+        self.assertNotIn(
+            "sensor:odom",
+            contract_io.missing_contract_inputs(robot, ["cam_left_head"], sources),
+        )
+
+        mobile_sources = [contract_io.StateSource("linear_x", "odom", None, 0)]
+        self.assertEqual(
+            contract_io.missing_contract_inputs(robot, [], mobile_sources),
+            ["sensor:odom"],
+        )
 
     def test_camera_mapping_requires_exact_declared_source(self):
         cameras = (

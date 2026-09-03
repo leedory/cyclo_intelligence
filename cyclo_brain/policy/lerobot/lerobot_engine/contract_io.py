@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
@@ -60,7 +61,12 @@ def init_contract_robot(runtime: Any, robot_type: str) -> None:
         contract.inactive_actions,
     )
 
-    if not runtime._robot.wait_for_ready(timeout=10.0):
+    if not wait_for_contract_inputs(
+        runtime._robot,
+        runtime._cameras,
+        runtime._state_sources,
+        timeout=10.0,
+    ):
         raise RuntimeError(f"robot sensors were not ready for robot_type={robot_type}")
     logger.info(
         "Robot ready from checkpoint contract: cameras=%s state=%s action_groups=%s",
@@ -68,6 +74,49 @@ def init_contract_robot(runtime: Any, robot_type: str) -> None:
         [source.feature for source in runtime._state_sources],
         runtime._action_keys,
     )
+
+
+def missing_contract_inputs(
+    robot: Any,
+    camera_sources: Iterable[str],
+    state_sources: Iterable[StateSource],
+) -> list[str]:
+    """Return only missing observations that the checkpoint actually consumes."""
+    sources = tuple(state_sources)
+    missing = [
+        f"camera:{name}" for name in camera_sources if not robot.is_image_ready(name)
+    ]
+    joint_groups = dict.fromkeys(
+        source.group for source in sources if source.kind == "joint" and source.group
+    )
+    missing.extend(
+        f"joint:{name}" for name in joint_groups if not robot.is_joint_ready(name)
+    )
+    if any(source.kind == "odom" for source in sources) and not robot.is_sensor_ready("odom"):
+        missing.append("sensor:odom")
+    return missing
+
+
+def wait_for_contract_inputs(
+    robot: Any,
+    camera_sources: Iterable[str],
+    state_sources: Iterable[StateSource],
+    *,
+    timeout: float,
+) -> bool:
+    """Wait for selected policy observations, not every sensor in the robot profile."""
+    cameras = tuple(camera_sources)
+    sources = tuple(state_sources)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not missing_contract_inputs(robot, cameras, sources):
+            return True
+        time.sleep(0.1)
+    logger.warning(
+        "Timeout waiting for contracted inputs. Missing: %s",
+        missing_contract_inputs(robot, cameras, sources),
+    )
+    return False
 
 
 def resolve_camera_mappings(
