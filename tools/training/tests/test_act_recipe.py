@@ -177,6 +177,29 @@ class ActRecipeTest(unittest.TestCase):
         self.assertEqual(payload["space"], "normalized")
         self.assertEqual(payload["features"], list(resolved.state_features))
 
+    def test_zero_noise_overrides_are_resolved_by_name_not_yaml_order(self):
+        resolved = self.resolve("task_000525")
+        payload = copy.deepcopy(resolved.payload)
+        disabled = {
+            "lift_joint",
+            "head_joint1",
+            "head_joint2",
+            "linear_x",
+            "linear_y",
+            "angular_z",
+        }
+        payload["state_noise"]["std_by_feature"] = {
+            name: 0.0 for name in reversed(tuple(disabled))
+        }
+
+        indices, standard_deviations = act_recipe._resolve_noise(
+            payload, resolved.state_features
+        )
+        noisy_features = {resolved.state_features[index] for index in indices}
+
+        self.assertEqual(noisy_features, set(resolved.state_features) - disabled)
+        self.assertEqual(standard_deviations, (0.01,) * len(noisy_features))
+
     def test_optimizer_mode_controls_generated_arguments(self):
         resolved = self.resolve("task_000458")
         preset_args = act_recipe.build_lerobot_args(resolved)

@@ -116,8 +116,11 @@ state_noise:
   enabled: true
   space: normalized
   distribution: gaussian
-  # Matches the latest useful run: 0.01 after normalization on all 22 columns.
+  # Default for every selected state feature (not action); normalized units here.
   std: 0.01
+  # Exact feature-name overrides; YAML order is irrelevant. A 0.0 disables noise
+  # for that feature. To keep lift/head/base clean, list lift_joint, head_joint1,
+  # head_joint2, linear_x, linear_y, and angular_z here with value 0.0.
   std_by_feature: {}
 
 training:

@@ -117,7 +117,10 @@ state_noise:
   enabled: true
   space: normalized
   distribution: gaussian
+  # Default for every selected state feature (not action); normalized units here.
   std: 0.01
+  # Exact feature-name overrides; order is irrelevant and 0.0 disables that
+  # feature. Only names selected by state_components are valid.
   std_by_feature: {}
 
 training:

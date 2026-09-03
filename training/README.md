@@ -77,8 +77,28 @@ manifest; keep each component's feature names in canonical robot order.
 Task 458 keeps state noise off by default. Task 525 reproduces the latest useful
 run with normalized-space Gaussian standard deviation 0.01 on all 22 state
 columns. `state_noise.std` applies one standard deviation to every selected
-state feature; `std_by_feature` overrides named columns (use `0` to exclude one).
-In `space: normalized`, values are post-normalization units and injection occurs
+state feature. `std_by_feature` uses exact feature names, so YAML map order does
+not matter; the launcher resolves names to the expanded `state_components`
+order. A value of `0.0` removes that feature from noise. For example, this keeps
+0.01 noise on both arms while disabling it for lift, head, and base:
+
+```yaml
+state_noise:
+  enabled: true
+  space: normalized
+  distribution: gaussian
+  std: 0.01
+  std_by_feature:
+    lift_joint: 0.0
+    head_joint1: 0.0
+    head_joint2: 0.0
+    linear_x: 0.0
+    linear_y: 0.0
+    angular_z: 0.0
+```
+
+Only names present in the selected policy state are accepted. In
+`space: normalized`, values are post-normalization units and injection occurs
 after the saved preprocessor. In `space: raw`, values use each feature's dataset
 units and injection occurs before preprocessing. Evaluation, actions, images,
 and files on disk remain clean.
