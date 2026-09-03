@@ -75,6 +75,8 @@ ServiceBagRecorder::ServiceBagRecorder()
     rclcpp::CallbackGroupType::MutuallyExclusive);
   other_callback_group_ = this->create_callback_group(
     rclcpp::CallbackGroupType::MutuallyExclusive);
+  monitor_callback_group_ = this->create_callback_group(
+    rclcpp::CallbackGroupType::Reentrant);
   service_callback_group_ = this->create_callback_group(
     rclcpp::CallbackGroupType::MutuallyExclusive);
 
@@ -96,7 +98,7 @@ ServiceBagRecorder::ServiceBagRecorder()
     monitor_timer_ = this->create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(period),
       std::bind(&ServiceBagRecorder::monitor_tick, this),
-      other_callback_group_);
+      monitor_callback_group_);
   }
 
   RCLCPP_INFO(this->get_logger(), "Rosbag recorder initialized with MultiThreadedExecutor support");
@@ -782,13 +784,13 @@ int main(int argc, char ** argv)
   // Use MultiThreadedExecutor for parallel callback processing
   rclcpp::executors::MultiThreadedExecutor executor(
     rclcpp::ExecutorOptions(),
-    4  // 4 threads: camera, joint, other, service
+    5  // 5 threads: camera, joint, other, monitor, service
   );
 
   auto node = std::make_shared<ServiceBagRecorder>();
   executor.add_node(node);
 
-  RCLCPP_INFO(node->get_logger(), "Running with MultiThreadedExecutor (4 threads)");
+  RCLCPP_INFO(node->get_logger(), "Running with MultiThreadedExecutor (5 threads)");
 
   executor.spin();
   rclcpp::shutdown();
