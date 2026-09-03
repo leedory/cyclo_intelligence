@@ -4,12 +4,12 @@
 # and manages the main runtime plus optional policy containers.
 #
 # Usage:
-#   docker/container.sh start              # → cyclo_intelligence
+#   docker/container.sh start              # → cyclo_intelligence_s2r
 #   docker/container.sh start-lerobot      # → lerobot (idle until LOAD)
 #   docker/container.sh start-groot        # → groot (idle until LOAD)
-#   docker/container.sh enter              # → shell in cyclo_intelligence
+#   docker/container.sh enter              # → shell in cyclo_intelligence_s2r
 #   docker/container.sh build-ui           # → rebuild React UI only
-#   docker/container.sh enter-lerobot      # → shell in lerobot_server
+#   docker/container.sh enter-lerobot      # → shell in lerobot_server_s2r
 #   docker/container.sh enter-groot        # → shell in groot_server
 #   docker/container.sh logs               # → compose logs -f
 #   docker/container.sh status             # → s6 svstat on all containers
@@ -29,9 +29,9 @@ COMPOSE="docker compose -f ${SCRIPT_DIR}/docker-compose.yml"
     && COMPOSE="${COMPOSE} -f ${SCRIPT_DIR}/docker-compose.override.yml"
 
 MAIN_SERVICE="cyclo_intelligence"
-MAIN_CONTAINER="${CYCLO_MAIN_CONTAINER_NAME:-cyclo_intelligence}"
+MAIN_CONTAINER="${CYCLO_MAIN_CONTAINER_NAME:-cyclo_intelligence_s2r}"
 LEROBOT_SERVICE="lerobot"
-LEROBOT_CONTAINER="${LEROBOT_CONTAINER_NAME:-lerobot_server}"
+LEROBOT_CONTAINER="${LEROBOT_CONTAINER_NAME:-lerobot_server_s2r}"
 GROOT_SERVICE="groot"
 GROOT_CONTAINER="${GROOT_CONTAINER_NAME:-groot_server}"
 
@@ -109,7 +109,7 @@ prepare_host_mounts() {
     echo "[container.sh]   huggingface: ${huggingface_dir} -> ${huggingface_real}"
 }
 
-CYCLO_AGENT_SOCKETS_DIR="${CYCLO_AGENT_SOCKETS_DIR:-/var/run/robotis/agent_sockets/cyclo_intelligence}"
+CYCLO_AGENT_SOCKETS_DIR="${CYCLO_AGENT_SOCKETS_DIR:-/var/run/robotis/agent_sockets/cyclo_intelligence_s2r}"
 export CYCLO_AGENT_SOCKETS_DIR
 mkdir -p "$CYCLO_AGENT_SOCKETS_DIR" 2>/dev/null \
     || sudo mkdir -p "$CYCLO_AGENT_SOCKETS_DIR" 2>/dev/null \
@@ -190,16 +190,16 @@ show_help() {
     cat <<EOF
 Usage: $0 <command>
 
-Main image (cyclo_intelligence):
-  start            Build (if needed) and start cyclo_intelligence
-  enter            Open an interactive bash in cyclo_intelligence
-  logs             Tail cyclo_intelligence logs
+Main image (cyclo_intelligence_s2r):
+  start            Build (if needed) and start cyclo_intelligence_s2r
+  enter            Open an interactive bash in cyclo_intelligence_s2r
+  logs             Tail cyclo_intelligence_s2r logs
 
 LeRobot policy container:
   start-lerobot    Build + start lerobot. Container boots idle and
                    only configures itself once orchestrator dispatches
                    InferenceCommand.LOAD with a robot_type.
-  enter-lerobot    Open an interactive bash in lerobot_server
+  enter-lerobot    Open an interactive bash in lerobot_server_s2r
 
 GR00T policy container:
   start-groot      Build + start groot (N1.7 baseline). Same boot-idle
@@ -213,8 +213,8 @@ Lifecycle:
 
 UI development:
   build-ui         Rebuild only orchestrator/ui and copy the static build into
-                   the running cyclo_intelligence nginx root. Uses npm inside
-                   cyclo_intelligence when available, with a node:22 fallback.
+                   the running cyclo_intelligence_s2r nginx root. Uses npm inside
+                   cyclo_intelligence_s2r when available, with a node:22 fallback.
   test-ui [args]   Run React tests. Extra args are passed after npm test,
                    e.g. test-ui -- --watchAll=false
 

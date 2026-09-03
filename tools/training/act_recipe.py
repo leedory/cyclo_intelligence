@@ -115,7 +115,7 @@ def _container_path_to_host(path: str) -> Path:
         relative = container_path.relative_to("/workspace")
     except ValueError as exc:
         raise RecipeError(
-            f"container path must be below /workspace so it is visible in lerobot_server: {path}"
+            f"container path must be below /workspace so it is visible in the policy container: {path}"
         ) from exc
     return HOST_WORKSPACE / relative
 
@@ -853,7 +853,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("recipe", type=Path)
     parser.add_argument("--dataset-root", help="Override dataset.root with a /workspace path")
     parser.add_argument("--output-dir", help="Override training.output_dir with a /workspace path")
-    parser.add_argument("--container", default=os.environ.get("LEROBOT_CONTAINER_NAME", "lerobot_server"))
+    parser.add_argument(
+        "--container",
+        default=os.environ.get("LEROBOT_CONTAINER_NAME", "lerobot_server_s2r"),
+    )
     parser.add_argument(
         "--skip-dataset",
         action="store_true",

@@ -72,6 +72,12 @@ export function getInferenceCommandRates(inferenceMode, taskInfo = {}) {
   };
 }
 
+export function getRuntimeServiceType(serviceType) {
+  return String(serviceType || '').trim() === 'lerobot'
+    ? 'lerobot_s2r'
+    : String(serviceType || '').trim();
+}
+
 export function transformReplayDataResult(result = {}, bagPath = '') {
   return {
     success: result.success,
@@ -401,7 +407,7 @@ export function useRosServiceCaller() {
                 : 0.3
             ),
             include_robotis_license: Boolean(taskInfo.includeRobotisLicense),
-            service_type: String(taskInfo.serviceType || ''),
+            service_type: getRuntimeServiceType(taskInfo.serviceType),
             inference_mode: String(inferenceMode),
             action_request_mode: actionRequestMode,
             acceleration_mode: accelerationMode || 'pytorch',

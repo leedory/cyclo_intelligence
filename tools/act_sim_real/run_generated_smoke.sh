@@ -33,7 +33,7 @@ ACT_IMAGE_TRANSFORMS_TFS='{"brightness":{"weight":1,"type":"ColorJitter","kwargs
 ACT_JOB_NAME="${ACT_JOB_NAME:-task_000459_peanut_mix_generated_smoke_act}"
 ACT_OUTPUT_DIR="${ACT_OUTPUT_DIR:-/workspace/model/lerobot/${ACT_JOB_NAME}}"
 ACT_LOG_FILE="${ACT_LOG_FILE:-$WORKSPACE/model/lerobot/${ACT_JOB_NAME}/train.log}"
-LEROBOT_CONTAINER="${LEROBOT_CONTAINER_NAME:-lerobot_server}"
+LEROBOT_CONTAINER="${LEROBOT_CONTAINER_NAME:-lerobot_server_s2r}"
 CONTAINER_WORKSPACE="/workspace"
 CONTAINER_SOURCE_ROOT="$CONTAINER_WORKSPACE/native_sources/Task_000459_Pick_Peanut_Mix_WhiteShelf_GENERATED_SIM"
 CONTAINER_DATASET_ROOT="$CONTAINER_WORKSPACE/dataset/robotis/task_000459_peanut_mix_generated_smoke_act_v30"
@@ -46,7 +46,7 @@ Usage: tools/act_sim_real/run_generated_smoke.sh <stage-source|validate|build-da
 stage-source  Snapshot the verified Task_000459 archive into docker/workspace.
 validate      Verify all source episodes are successful and conversion-ready.
 build-dataset Convert the staged archive to a 10 Hz, 480x640 LeRobot v3 dataset.
-train         Run fresh ACT training in lerobot_server (start it first with docker/container.sh start-lerobot).
+train         Run fresh ACT training in lerobot_server_s2r (start it first with docker/container.sh start-lerobot).
 all           stage-source, validate, then build-dataset. Does not start GPU training.
 
 This is a smoke/overfit dataset. The 12 demonstrations are fixed successful

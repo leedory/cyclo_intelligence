@@ -1,8 +1,16 @@
 import {
   getRecordCommandServiceTimeoutMs,
   getInferenceCommandRates,
+  getRuntimeServiceType,
   transformReplayDataResult,
 } from './useRosServiceCaller';
+
+describe('getRuntimeServiceType', () => {
+  test('routes visible LeRobot selection to the S2R runtime namespace', () => {
+    expect(getRuntimeServiceType('lerobot')).toBe('lerobot_s2r');
+    expect(getRuntimeServiceType('groot')).toBe('groot');
+  });
+});
 
 describe('getInferenceCommandRates', () => {
   test('locks Isaac action and policy requests to 15 Hz', () => {

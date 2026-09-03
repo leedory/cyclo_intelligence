@@ -31,7 +31,7 @@
 # treats those containers as 'orphans' of our project and
 # --remove-orphans wipes them. Pin our own name so down/up only ever
 # touches cyclo_intelligence's own containers.
-name: ${CYCLO_COMPOSE_PROJECT_NAME:-cyclo_intelligence}
+name: ${CYCLO_COMPOSE_PROJECT_NAME:-cyclo_intelligence_s2r}
 
 services:
   # ============================================================
@@ -42,7 +42,7 @@ services:
   # the s6-agent / supervisor_api control plane.
   # ============================================================
   cyclo_intelligence:
-    container_name: ${CYCLO_MAIN_CONTAINER_NAME:-cyclo_intelligence}
+    container_name: ${CYCLO_MAIN_CONTAINER_NAME:-cyclo_intelligence_s2r}
     image: robotis/cyclo-intelligence:1.3.0
     build:
       context: ..
@@ -75,6 +75,13 @@ services:
       - CYCLO_VIDEO_SERVER_PORT=${CYCLO_VIDEO_SERVER_PORT:-7082}
       - CYCLO_WEB_VIDEO_SERVER_PORT=${CYCLO_WEB_VIDEO_SERVER_PORT:-7085}
       - CYCLO_SUPERVISOR_API_PORT=${CYCLO_SUPERVISOR_API_PORT:-7100}
+      # Workstation S2R owns a separate Docker backend and ROS service prefix.
+      # Keep these in the main container environment so supervisor_api uses the
+      # same names when it invokes host Docker Compose through the socket.
+      - CYCLO_SUPERVISOR_API_CONTAINER_NAME=${CYCLO_MAIN_CONTAINER_NAME:-cyclo_intelligence_s2r}
+      - CYCLO_COMPOSE_PROJECT_NAME=${CYCLO_COMPOSE_PROJECT_NAME:-cyclo_intelligence_s2r}
+      - LEROBOT_CONTAINER_NAME=${LEROBOT_CONTAINER_NAME:-lerobot_server_s2r}
+      - LEROBOT_RUNTIME_NAMESPACE=${LEROBOT_RUNTIME_NAMESPACE:-lerobot_s2r}
       # LOAD may include first-time gated backbone downloads (e.g. Cosmos).
       # Keep this long enough that a real download is not surfaced as a
       # false model-load failure while the container continues downloading.
@@ -116,7 +123,7 @@ services:
       - ./supervisor_api:/opt/supervisor_api:ro
       # s6-agent UDS — cyclo_manager FastAPI listens here for
       # system-wide control requests from the host side.
-      - ${CYCLO_AGENT_SOCKETS_DIR:-/var/run/robotis/agent_sockets/cyclo_intelligence}:/var/run/agent
+      - ${CYCLO_AGENT_SOCKETS_DIR:-/var/run/robotis/agent_sockets/cyclo_intelligence_s2r}:/var/run/agent
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
 
@@ -148,7 +155,7 @@ services:
   # on demand.
   # ============================================================
   lerobot:
-    container_name: ${LEROBOT_CONTAINER_NAME:-lerobot_server}
+    container_name: ${LEROBOT_CONTAINER_NAME:-lerobot_server_s2r}
     image: robotis/lerobot-zenoh:1.4.0-${ARCH:-arm64}
     build:
       # Build context bumped one level up so the Dockerfile can
@@ -179,6 +186,9 @@ services:
     # robot_type is *not* baked here. Main receives it on
     # InferenceCommand.LOAD, then configures its local RobotClient command path.
     environment:
+      # Keep S2R inference services distinct from a standard /lerobot backend
+      # that may be training or serving the physical-robot installation.
+      - POLICY_BACKEND=${LEROBOT_RUNTIME_NAMESPACE:-lerobot_s2r}
       # Main-runtime waits on the local engine process while weights and
       # first-time gated backbones download/load.
       - LOAD_POLICY_TIMEOUT_S=${LOAD_POLICY_TIMEOUT_S:-7200}

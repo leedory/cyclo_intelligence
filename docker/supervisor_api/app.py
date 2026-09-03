@@ -39,7 +39,7 @@ Environment overrides:
     CYCLO_SUPERVISOR_API_CONTAINER_NAME
                                       Docker container name to inspect for
                                       host-side bind mount paths
-                                      (default cyclo_intelligence fallback)
+                                      (default cyclo_intelligence_s2r)
 """
 
 from __future__ import annotations
@@ -306,6 +306,19 @@ def _detect_arch() -> str:
 
 
 _BACKEND_ARCH = os.environ.get("ARCH", _detect_arch())
+_S2R_COMPOSE_PROJECT = os.environ.get(
+    "CYCLO_COMPOSE_PROJECT_NAME", "cyclo_intelligence_s2r"
+)
+_S2R_MAIN_CONTAINER = os.environ.get(
+    "CYCLO_SUPERVISOR_API_CONTAINER_NAME",
+    os.environ.get("CYCLO_MAIN_CONTAINER_NAME", "cyclo_intelligence_s2r"),
+)
+_S2R_LEROBOT_CONTAINER = os.environ.get(
+    "LEROBOT_CONTAINER_NAME", "lerobot_server_s2r"
+)
+_S2R_LEROBOT_RUNTIME_NAMESPACE = os.environ.get(
+    "LEROBOT_RUNTIME_NAMESPACE", "lerobot_s2r"
+)
 
 
 # Image versions are hardcoded per backend below since each service has
@@ -315,7 +328,7 @@ _BACKEND_ARCH = os.environ.get("ARCH", _detect_arch())
 _BACKENDS: Dict[str, Dict[str, str]] = {
     "lerobot": {
         "service": "lerobot",
-        "container": "lerobot_server",
+        "container": _S2R_LEROBOT_CONTAINER,
         "image": f"robotis/lerobot-zenoh:1.4.0-{_BACKEND_ARCH}",
         "services": ["main-runtime", "engine-process"],
     },
@@ -414,8 +427,9 @@ def _normalized_host_path(path: Optional[str]) -> Optional[str]:
 def _self_container_candidates() -> List[str]:
     candidates = [
         os.environ.get("CYCLO_SUPERVISOR_API_CONTAINER_NAME"),
+        os.environ.get("CYCLO_MAIN_CONTAINER_NAME"),
         os.environ.get("HOSTNAME"),
-        "cyclo_intelligence",
+        _S2R_MAIN_CONTAINER,
     ]
     seen: List[str] = []
     for candidate in candidates:
@@ -550,6 +564,10 @@ def _compose_env() -> Dict[str, str]:
     if huggingface_dir:
         env["CYCLO_HUGGINGFACE_DIR"] = huggingface_dir
     env.setdefault("ARCH", _BACKEND_ARCH)
+    env.setdefault("CYCLO_COMPOSE_PROJECT_NAME", _S2R_COMPOSE_PROJECT)
+    env.setdefault("CYCLO_MAIN_CONTAINER_NAME", _S2R_MAIN_CONTAINER)
+    env.setdefault("LEROBOT_CONTAINER_NAME", _S2R_LEROBOT_CONTAINER)
+    env.setdefault("LEROBOT_RUNTIME_NAMESPACE", _S2R_LEROBOT_RUNTIME_NAMESPACE)
     return env
 
 

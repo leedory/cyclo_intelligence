@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 import tempfile
@@ -46,6 +47,20 @@ class ActRecipeTest(unittest.TestCase):
         self.assertEqual(mobile.state_features[-3:], ("linear_x", "linear_y", "angular_z"))
         self.assertEqual(fixed.payload["policy_io"]["fps"], 15)
         self.assertEqual(fixed.camera_inputs, ("head", "left_wrist", "right_wrist"))
+
+    def test_cli_defaults_to_s2r_lerobot_container(self):
+        previous = os.environ.pop("LEROBOT_CONTAINER_NAME", None)
+        self.addCleanup(
+            lambda: (
+                os.environ.__setitem__("LEROBOT_CONTAINER_NAME", previous)
+                if previous is not None
+                else os.environ.pop("LEROBOT_CONTAINER_NAME", None)
+            )
+        )
+
+        args = act_recipe.parse_args(["plan", str(REPO_ROOT / "training/task_000458/act.yaml")])
+
+        self.assertEqual(args.container, "lerobot_server_s2r")
 
     def test_camera_inputs_control_act_features_and_deployment_manifest(self):
         resolved = self.resolve("task_000458")

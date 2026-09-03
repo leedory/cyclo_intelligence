@@ -28,7 +28,18 @@ import yaml
 router = APIRouter(prefix="/simulator", tags=["simulator"])
 
 CYCLO_LAB_CONTAINER = os.getenv("CYCLO_LAB_CONTAINER_NAME", "cyclo_lab")
-TRAINING_CONTAINER = os.getenv("LEROBOT_CONTAINER_NAME", "lerobot_server")
+S2R_TRAINING_CONTAINER = os.getenv("LEROBOT_CONTAINER_NAME", "lerobot_server_s2r")
+ADDITIONAL_TRAINING_CONTAINERS = os.getenv(
+    "CYCLO_ADDITIONAL_TRAINING_CONTAINERS", "lerobot_server"
+)
+TRAINING_CONTAINERS = tuple(dict.fromkeys(
+    name
+    for name in (
+        S2R_TRAINING_CONTAINER,
+        *(item.strip() for item in ADDITIONAL_TRAINING_CONTAINERS.split(",")),
+    )
+    if name
+))
 CYCLO_LAB_WORKDIR = os.getenv("CYCLO_LAB_WORKDIR", "/workspace/cyclo_lab")
 SESSION_STATUS_PATH = "/tmp/cyclo_lab_ui_session.json"
 POLICY_ROOT = Path("/workspace/model/lerobot")
@@ -106,22 +117,25 @@ def _running_container(client, name: str):
 
 
 def _training_is_active(client) -> bool:
-    """Return whether the training container currently owns a training process."""
-    try:
-        container = client.containers.get(TRAINING_CONTAINER)
-        container.reload()
-        if getattr(container, "status", None) != "running":
-            return False
-        process_table = container.top(ps_args="-eo args") or {}
-    except (NotFound, DockerException):
-        return False
+    """Return whether an S2R or explicitly observed external backend is training."""
+    for container_name in TRAINING_CONTAINERS:
+        try:
+            container = client.containers.get(container_name)
+            container.reload()
+            if getattr(container, "status", None) != "running":
+                continue
+            process_table = container.top(ps_args="-eo args") or {}
+        except (NotFound, DockerException):
+            continue
 
-    rows = process_table.get("Processes", [])
-    return any(
-        marker in " ".join(str(field) for field in row)
-        for row in rows
-        for marker in _TRAINING_PROCESS_MARKERS
-    )
+        rows = process_table.get("Processes", [])
+        if any(
+            marker in " ".join(str(field) for field in row)
+            for row in rows
+            for marker in _TRAINING_PROCESS_MARKERS
+        ):
+            return True
+    return False
 
 
 def _read_status_document(container) -> Optional[Dict[str, Any]]:

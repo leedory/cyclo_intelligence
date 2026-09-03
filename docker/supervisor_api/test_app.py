@@ -140,6 +140,42 @@ def test_simulator_exec_inspection_reports_running_and_safe_pid():
     assert simulator._exec_pid(client, "running") == 84
 
 
+def test_simulator_training_gate_observes_s2r_and_standard_containers(monkeypatch):
+    requested = []
+
+    class FakeContainer:
+        status = "running"
+
+        def __init__(self, processes):
+            self.processes = processes
+
+        def reload(self):
+            pass
+
+        def top(self, ps_args):
+            assert ps_args == "-eo args"
+            return {"Processes": [[command] for command in self.processes]}
+
+    containers = {
+        "lerobot_server_s2r": FakeContainer(["python3 -m main_runtime"]),
+        "lerobot_server": FakeContainer(["python3 -m lerobot.scripts.lerobot_train"]),
+    }
+
+    def get_container(name):
+        requested.append(name)
+        return containers[name]
+
+    monkeypatch.setattr(
+        simulator,
+        "TRAINING_CONTAINERS",
+        ("lerobot_server_s2r", "lerobot_server"),
+    )
+    client = SimpleNamespace(containers=SimpleNamespace(get=get_container))
+
+    assert simulator._training_is_active(client) is True
+    assert requested == ["lerobot_server_s2r", "lerobot_server"]
+
+
 def test_simulator_start_request_rejects_environment_override():
     import pytest
     from pydantic import ValidationError
@@ -788,6 +824,10 @@ def test_groot_backend_uses_current_release_image():
     )
 
 
+def test_lerobot_backend_uses_s2r_container_namespace():
+    assert _BACKENDS["lerobot"]["container"] == "lerobot_server_s2r"
+
+
 def test_backend_status_model_exposes_stale_image_status():
     status = app.BackendStatus(
         name="groot",
@@ -808,13 +848,13 @@ def test_host_project_dir_falls_back_to_compose_container_name(monkeypatch):
 
         def get(self, name):
             self.requested.append(name)
-            if name == "cyclo_intelligence":
+            if name == "cyclo_intelligence_s2r":
                 return SimpleNamespace(
                     attrs={
                         "Mounts": [
                             {
                                 "Destination": app._CYCLO_REPO_MOUNT,
-                                "Source": "/home/rc/workspace/cyclo_intelligence",
+                                "Source": "/home/rc/workspace/cyclo_intelligence_s2r",
                             }
                         ]
                     }
@@ -831,9 +871,9 @@ def test_host_project_dir_falls_back_to_compose_container_name(monkeypatch):
     try:
         assert (
             app._host_project_dir()
-            == "/home/rc/workspace/cyclo_intelligence/docker"
+            == "/home/rc/workspace/cyclo_intelligence_s2r/docker"
         )
-        assert fake_containers.requested == ["ubuntu", "cyclo_intelligence"]
+        assert fake_containers.requested == ["ubuntu", "cyclo_intelligence_s2r"]
     finally:
         app._HOST_PROJECT_DIR_CACHE = None
 
@@ -845,18 +885,18 @@ def test_compose_env_uses_current_container_mounts(monkeypatch):
 
         def get(self, name):
             self.requested.append(name)
-            if name != "cyclo_intelligence":
+            if name != "cyclo_intelligence_s2r":
                 raise NotFound(name)
             return SimpleNamespace(
                 attrs={
                     "Mounts": [
                         {
                             "Destination": "/workspace",
-                            "Source": "/mnt/ssd/cyclo_intelligence/workspace",
+                            "Source": "/mnt/ssd/cyclo_intelligence_s2r/workspace",
                         },
                         {
                             "Destination": "/root/.cache/huggingface",
-                            "Source": "/mnt/ssd/cyclo_intelligence/huggingface",
+                            "Source": "/mnt/ssd/cyclo_intelligence_s2r/huggingface",
                         },
                     ]
                 }
@@ -876,18 +916,22 @@ def test_compose_env_uses_current_container_mounts(monkeypatch):
         env = _compose_env()
         assert (
             env["CYCLO_WORKSPACE_DIR"]
-            == "/mnt/ssd/cyclo_intelligence/workspace"
+            == "/mnt/ssd/cyclo_intelligence_s2r/workspace"
         )
         assert (
             env["CYCLO_HUGGINGFACE_DIR"]
-            == "/mnt/ssd/cyclo_intelligence/huggingface"
+            == "/mnt/ssd/cyclo_intelligence_s2r/huggingface"
         )
         assert env["ARCH"] == app._BACKEND_ARCH
+        assert env["CYCLO_COMPOSE_PROJECT_NAME"] == "cyclo_intelligence_s2r"
+        assert env["CYCLO_MAIN_CONTAINER_NAME"] == "cyclo_intelligence_s2r"
+        assert env["LEROBOT_CONTAINER_NAME"] == "lerobot_server_s2r"
+        assert env["LEROBOT_RUNTIME_NAMESPACE"] == "lerobot_s2r"
         assert fake_containers.requested == [
             "container-id",
-            "cyclo_intelligence",
+            "cyclo_intelligence_s2r",
             "container-id",
-            "cyclo_intelligence",
+            "cyclo_intelligence_s2r",
         ]
     finally:
         app._HOST_WORKSPACE_DIR_CACHE = None
