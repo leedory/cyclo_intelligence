@@ -2816,6 +2816,24 @@ class OrchestratorNode(Node):
                 f'Joystick trigger ignored without communicator: {joystick_mode}')
             return
 
+        if joystick_mode == 'save_record':
+            snapshot_on_recording, snapshot_on_inference = (
+                self._snapshot_session_state()
+            )
+            if snapshot_on_inference:
+                if snapshot_on_recording:
+                    self._toggle_inference_trigger_recording(True)
+                else:
+                    self.get_logger().debug(
+                        'Tact save ignored: no active inference recording')
+                return
+            if snapshot_on_recording:
+                self._stop_record_trigger_segment()
+            else:
+                self.get_logger().debug(
+                    'Tact save ignored: no active recording')
+            return
+
         if joystick_mode in ('right', 'left'):
             snapshot_on_recording, snapshot_on_inference = (
                 self._snapshot_session_state()
