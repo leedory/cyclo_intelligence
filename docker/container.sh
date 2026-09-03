@@ -265,8 +265,11 @@ enter_bash() {
 }
 
 run_ui_npm_in_main() {
+    # The live checkout is bind-mounted below /root/ros2_ws. An arbitrary
+    # host UID cannot traverse /root inside the container, even when the
+    # mounted source itself is readable. Use the container's default user for
+    # in-container builds while keeping npm's home/cache isolated in /tmp.
     docker exec \
-        -u "$(id -u):$(id -g)" \
         -e HOME=/tmp \
         -w "$(main_ui_dir)" \
         "$MAIN_CONTAINER" \
