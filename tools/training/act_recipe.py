@@ -120,6 +120,16 @@ def _container_path_to_host(path: str) -> Path:
     return HOST_WORKSPACE / relative
 
 
+def _host_path_to_container(path: Path) -> Path:
+    try:
+        relative = path.resolve().relative_to(HOST_WORKSPACE.resolve())
+    except ValueError as exc:
+        raise RecipeError(
+            f"host path must be below {HOST_WORKSPACE} so it is visible in the policy container: {path}"
+        ) from exc
+    return Path("/workspace") / relative
+
+
 def load_recipe(path: str | Path) -> dict[str, Any]:
     source = Path(path).expanduser().resolve()
     if not source.is_file():
@@ -742,6 +752,54 @@ def _write_if_changed(path: Path, content: str) -> None:
     _atomic_write(path, content)
 
 
+def _write_contract(path: Path, content: str, container: str | None) -> None:
+    """Write a contract, falling back to the owning container for root-owned runs."""
+    try:
+        _write_if_changed(path, content)
+        return
+    except PermissionError as exc:
+        if not container or not _container_running(container):
+            raise RecipeError(
+                f"cannot write policy contract to {path}; the training output is not host-writable "
+                "and its container is not available"
+            ) from exc
+
+    container_path = _host_path_to_container(path)
+    script = """\
+import os
+import pathlib
+import sys
+import tempfile
+
+path = pathlib.Path(sys.argv[1])
+content = sys.stdin.read()
+path.parent.mkdir(parents=True, exist_ok=True)
+try:
+    if path.is_file() and path.read_text(encoding="utf-8") == content:
+        raise SystemExit(0)
+except OSError:
+    pass
+fd, temporary = tempfile.mkstemp(dir=path.parent)
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(content)
+    pathlib.Path(temporary).replace(path)
+except BaseException:
+    pathlib.Path(temporary).unlink(missing_ok=True)
+    raise
+"""
+    result = subprocess.run(
+        ["docker", "exec", "-i", container, "python3", "-c", script, str(container_path)],
+        input=content,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "unknown container error"
+        raise RecipeError(f"failed to write policy contract to {path}: {detail}")
+
+
 def _complete_checkpoint(pretrained_model_dir: Path) -> bool:
     checkpoint_dir = pretrained_model_dir.parent
     training_state = checkpoint_dir / "training_state" / "training_step.json"
@@ -760,14 +818,18 @@ def _complete_checkpoint(pretrained_model_dir: Path) -> bool:
         return False
 
 
-def finalize_contracts(resolved: ResolvedRecipe) -> list[Path]:
+def finalize_contracts(
+    resolved: ResolvedRecipe, container: str | None = None
+) -> list[Path]:
     output_root = resolved.output_host_root
     if not output_root.is_dir():
         raise RecipeError(f"training output does not exist: {output_root}")
     content = _manifest_text(resolved)
     written = [output_root / "cyclo_policy.yaml"]
-    _write_if_changed(written[0], content)
-    _write_if_changed(output_root / "resolved_recipe.yaml", _resolved_recipe_text(resolved))
+    _write_contract(written[0], content, container)
+    _write_contract(
+        output_root / "resolved_recipe.yaml", _resolved_recipe_text(resolved), container
+    )
     checkpoints_root = output_root / "checkpoints"
     if checkpoints_root.is_dir():
         for checkpoint in sorted(checkpoints_root.iterdir()):
@@ -776,7 +838,7 @@ def finalize_contracts(resolved: ResolvedRecipe) -> list[Path]:
             pretrained = checkpoint / "pretrained_model"
             if _complete_checkpoint(pretrained):
                 destination = pretrained / "cyclo_policy.yaml"
-                _write_if_changed(destination, content)
+                _write_contract(destination, content, container)
                 written.append(destination)
     return written
 
@@ -835,10 +897,10 @@ def run_recipe(resolved: ResolvedRecipe, container: str) -> list[Path]:
     written: list[Path] = []
     while process.poll() is None:
         if resolved.output_host_root.is_dir():
-            written = finalize_contracts(resolved)
+            written = finalize_contracts(resolved, container)
         time.sleep(2.0)
     if resolved.output_host_root.is_dir():
-        written = finalize_contracts(resolved)
+        written = finalize_contracts(resolved, container)
     if process.returncode != 0:
         raise RecipeError(
             f"training exited with status {process.returncode}; complete checkpoints were finalized, "
@@ -883,7 +945,7 @@ def main(argv: list[str] | None = None) -> int:
         _print_plan(resolved, command)
         return 0
     if args.command == "finalize":
-        written = finalize_contracts(resolved)
+        written = finalize_contracts(resolved, args.container)
     else:
         _print_plan(resolved, command)
         written = run_recipe(resolved, args.container)

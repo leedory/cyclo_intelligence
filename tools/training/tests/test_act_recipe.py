@@ -6,9 +6,11 @@ import json
 import os
 from dataclasses import replace
 from pathlib import Path
+import subprocess
 import tempfile
 import sys
 import unittest
+from unittest import mock
 
 import yaml
 
@@ -247,6 +249,23 @@ class ActRecipeTest(unittest.TestCase):
             self.assertEqual(set(root_manifest), set(act_recipe.policy_manifest(resolved)))
             provenance = yaml.safe_load((output / "resolved_recipe.yaml").read_text())
             self.assertIn("training", provenance)
+
+    def test_contract_write_falls_back_to_training_container_on_permission_error(self):
+        path = act_recipe.HOST_WORKSPACE / "model" / "run" / "cyclo_policy.yaml"
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
+        with (
+            mock.patch.object(
+                act_recipe, "_write_if_changed", side_effect=PermissionError("root owned")
+            ),
+            mock.patch.object(act_recipe, "_container_running", return_value=True),
+            mock.patch.object(act_recipe.subprocess, "run", return_value=completed) as run,
+        ):
+            act_recipe._write_contract(path, "task: smoke\n", "lerobot_server_s2r")
+
+        command = run.call_args.args[0]
+        self.assertEqual(command[:4], ["docker", "exec", "-i", "lerobot_server_s2r"])
+        self.assertEqual(command[-1], "/workspace/model/run/cyclo_policy.yaml")
+        self.assertEqual(run.call_args.kwargs["input"], "task: smoke\n")
 
 
 if __name__ == "__main__":
