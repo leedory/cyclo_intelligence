@@ -740,12 +740,14 @@ def _atomic_write(path: Path, content: str) -> None:
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
         handle.write(content)
         temporary = Path(handle.name)
+    temporary.chmod(0o644)
     temporary.replace(path)
 
 
 def _write_if_changed(path: Path, content: str) -> None:
     try:
         if path.is_file() and path.read_text(encoding="utf-8") == content:
+            path.chmod(0o644)
             return
     except OSError:
         pass
@@ -776,6 +778,7 @@ content = sys.stdin.read()
 path.parent.mkdir(parents=True, exist_ok=True)
 try:
     if path.is_file() and path.read_text(encoding="utf-8") == content:
+        path.chmod(0o644)
         raise SystemExit(0)
 except OSError:
     pass
@@ -783,6 +786,7 @@ fd, temporary = tempfile.mkstemp(dir=path.parent)
 try:
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
         handle.write(content)
+    os.chmod(temporary, 0o644)
     pathlib.Path(temporary).replace(path)
 except BaseException:
     pathlib.Path(temporary).unlink(missing_ok=True)

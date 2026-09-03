@@ -267,6 +267,9 @@ class ActRecipeTest(unittest.TestCase):
             self.assertIn(complete / "cyclo_policy.yaml", written)
             self.assertTrue((output / "cyclo_policy.yaml").is_file())
             self.assertTrue((output / "resolved_recipe.yaml").is_file())
+            self.assertEqual(
+                (output / "cyclo_policy.yaml").stat().st_mode & 0o777, 0o644
+            )
             self.assertFalse((incomplete / "cyclo_policy.yaml").exists())
             root_manifest = yaml.safe_load((output / "cyclo_policy.yaml").read_text())
             self.assertEqual(set(root_manifest), set(act_recipe.policy_manifest(resolved)))
@@ -288,6 +291,7 @@ class ActRecipeTest(unittest.TestCase):
         command = run.call_args.args[0]
         self.assertEqual(command[:4], ["docker", "exec", "-i", "lerobot_server_s2r"])
         self.assertEqual(command[-1], "/workspace/model/run/cyclo_policy.yaml")
+        self.assertIn("os.chmod(temporary, 0o644)", command[-2])
         self.assertEqual(run.call_args.kwargs["input"], "task: smoke\n")
 
 
