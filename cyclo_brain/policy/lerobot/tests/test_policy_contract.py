@@ -79,6 +79,30 @@ class PolicyContractTest(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "policy state shape"):
             policy_contract.validate_policy_config(contract, config)
 
+    def test_camera_subset_must_match_checkpoint_image_features_exactly(self):
+        payload = manifest()
+        payload["cameras"]["cam_left_wrist"] = {
+            "key": "observation.images.rgb.cam_left_wrist",
+            "width": 480,
+            "height": 640,
+        }
+        contract = self.load(payload)
+        config = SimpleNamespace(
+            input_features={
+                "observation.state": SimpleNamespace(shape=(2,)),
+                "observation.images.rgb.cam_left_head": SimpleNamespace(shape=(3, 376, 672)),
+                "observation.images.rgb.cam_left_wrist": SimpleNamespace(shape=(3, 640, 480)),
+            },
+            output_features={"action": SimpleNamespace(shape=(2,))},
+        )
+        policy_contract.validate_policy_config(contract, config)
+
+        config.input_features["observation.images.rgb.cam_right_wrist"] = SimpleNamespace(
+            shape=(3, 640, 480)
+        )
+        with self.assertRaisesRegex(RuntimeError, "policy image keys"):
+            policy_contract.validate_policy_config(contract, config)
+
     def test_missing_contract_has_clear_error(self):
         with tempfile.TemporaryDirectory() as temporary:
             with self.assertRaisesRegex(RuntimeError, "missing required policy contract"):

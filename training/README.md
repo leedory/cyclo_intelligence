@@ -19,6 +19,35 @@ reject older all-landscape datasets: head is upright 672x376 and wrists are
 upright portrait 480x640. Shape validation cannot prove visual uprightness, so
 the recorder/converter still needs a visual orientation check.
 
+`policy_io.cameras` is the camera catalog and should normally stay unchanged.
+Select the cameras used by a new policy with the single `camera_inputs` line;
+the checked-in default uses all three:
+
+```yaml
+# all cameras (default)
+camera_inputs: [head, left_wrist, right_wrist]
+
+# examples for separate experiments
+camera_inputs: [head]
+camera_inputs: [head, left_wrist]
+camera_inputs: [left_wrist, right_wrist]
+```
+
+The selected order is written into the ACT `policy.input_features` contract and
+only those cameras are written to `cyclo_policy.yaml`. A canonical dataset may
+still contain any of the other cameras declared in the catalog; they are not
+model inputs. At inference, the checkpoint manifest makes RobotClient subscribe
+to and wait for only the selected sources. There is intentionally no separate
+camera toggle in the inference UI, because that could disagree with the trained
+model. Use a distinct `training.job_name` and `training.output_dir` for every
+camera combination, and do not change `camera_inputs` when resuming a run.
+
+LeRobot currently still decodes unselected camera videos from an all-camera
+dataset during training. This costs I/O but does not expose those tensors to ACT.
+If decode throughput becomes limiting, create a derived dataset containing the
+same samples and only the selected video features rather than changing the
+policy contract.
+
 `policy_io.state_components` and `policy_io.action_components` are independent.
 For example, a Task 525 policy can observe the full robot while commanding only
 the right arm:

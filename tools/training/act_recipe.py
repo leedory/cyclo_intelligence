@@ -60,6 +60,7 @@ class ResolvedRecipe:
     output_host_root: Path
     state_features: tuple[str, ...]
     action_features: tuple[str, ...]
+    camera_inputs: tuple[str, ...]
     noise_indices: tuple[int, ...]
     noise_std: tuple[float, ...]
 
@@ -145,7 +146,9 @@ def _resolve_component_features(policy_io: dict[str, Any], field: str) -> tuple[
     return tuple(resolved)
 
 
-def _validate_policy_io(recipe: dict[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+def _validate_policy_io(
+    recipe: dict[str, Any],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     task = _mapping(recipe.get("task"), "task")
     if not isinstance(task.get("id"), str) or not task["id"]:
         raise RecipeError("task.id must be a non-empty string")
@@ -183,35 +186,49 @@ def _validate_policy_io(recipe: dict[str, Any]) -> tuple[tuple[str, ...], tuple[
     if bad_modes:
         raise RecipeError(f"unsupported inactive action modes: {bad_modes}")
 
-    cameras = _list(policy_io.get("cameras"), "policy_io.cameras")
+    cameras = _mapping(policy_io.get("cameras"), "policy_io.cameras")
     if not cameras:
         raise RecipeError("policy_io.cameras must not be empty")
+    camera_inputs = tuple(_string_list(policy_io.get("camera_inputs"), "policy_io.camera_inputs"))
+    unknown_camera_inputs = sorted(set(camera_inputs) - set(cameras))
+    if unknown_camera_inputs:
+        raise RecipeError(
+            f"policy_io.camera_inputs contains unknown cameras: {unknown_camera_inputs}"
+        )
     camera_keys: list[str] = []
     camera_sources: list[str] = []
-    for index, camera_raw in enumerate(cameras):
-        camera = _mapping(camera_raw, f"policy_io.cameras[{index}]")
+    for name, camera_raw in cameras.items():
+        if not isinstance(name, str) or not name:
+            raise RecipeError("policy_io camera names must be non-empty strings")
+        where = f"policy_io.cameras.{name}"
+        camera = _mapping(camera_raw, where)
         key = camera.get("key")
         if not isinstance(key, str) or not key.startswith("observation.images."):
-            raise RecipeError(f"policy_io.cameras[{index}].key must be an observation.images.* key")
+            raise RecipeError(f"{where}.key must be an observation.images.* key")
         camera_keys.append(key)
         source = camera.get("source")
         if not isinstance(source, str) or not source:
-            raise RecipeError(f"policy_io.cameras[{index}].source must be a non-empty robot camera name")
+            raise RecipeError(f"{where}.source must be a non-empty robot camera name")
         camera_sources.append(source)
-        _positive_int(camera.get("width"), f"policy_io.cameras[{index}].width")
-        _positive_int(camera.get("height"), f"policy_io.cameras[{index}].height")
+        _positive_int(camera.get("width"), f"{where}.width")
+        _positive_int(camera.get("height"), f"{where}.height")
         orientation = camera.get("orientation")
         if orientation not in ALLOWED_ORIENTATIONS:
             raise RecipeError(
-                f"policy_io.cameras[{index}].orientation must be one of {sorted(ALLOWED_ORIENTATIONS)}"
+                f"{where}.orientation must be one of {sorted(ALLOWED_ORIENTATIONS)}"
             )
         if camera.get("upright") is not True:
-            raise RecipeError(f"policy_io.cameras[{index}].upright must be true")
+            raise RecipeError(f"{where}.upright must be true")
     if len(camera_keys) != len(set(camera_keys)):
         raise RecipeError("policy_io.cameras contains duplicate keys")
     if len(camera_sources) != len(set(camera_sources)):
         raise RecipeError("policy_io.cameras contains duplicate sources")
-    return state_features, action_features
+    return state_features, action_features, camera_inputs
+
+
+def _selected_cameras(recipe: dict[str, Any]) -> list[dict[str, Any]]:
+    policy_io = recipe["policy_io"]
+    return [policy_io["cameras"][name] for name in policy_io["camera_inputs"]]
 
 
 def _validate_policy(recipe: dict[str, Any]) -> None:
@@ -427,7 +444,7 @@ def validate_dataset(
             )
 
     expected_camera_keys: set[str] = set()
-    for camera in policy_io["cameras"]:
+    for camera in _selected_cameras(recipe):
         key = camera["key"]
         expected_camera_keys.add(key)
         feature = _mapping(features.get(key), f"dataset info.features.{key}")
@@ -437,10 +454,14 @@ def validate_dataset(
                 f"dataset camera shape mismatch for {key}: expected {expected_shape}, got {feature.get('shape')}"
             )
     actual_camera_keys = {key for key in features if key.startswith("observation.images.")}
-    if actual_camera_keys != expected_camera_keys:
+    allowed_camera_keys = {camera["key"] for camera in policy_io["cameras"].values()}
+    missing_camera_keys = expected_camera_keys - actual_camera_keys
+    unexpected_camera_keys = actual_camera_keys - allowed_camera_keys
+    if missing_camera_keys or unexpected_camera_keys:
         raise RecipeError(
-            "dataset camera keys mismatch: "
-            f"expected={sorted(expected_camera_keys)}, actual={sorted(actual_camera_keys)}"
+            "dataset camera keys do not satisfy the selected inputs/catalog: "
+            f"missing_selected={sorted(missing_camera_keys)}, "
+            f"unexpected={sorted(unexpected_camera_keys)}, actual={sorted(actual_camera_keys)}"
         )
     return info
 
@@ -462,7 +483,7 @@ def resolve_recipe(
     if output_dir is not None:
         _mapping(recipe.get("training"), "training")["output_dir"] = output_dir
 
-    state_features, action_features = _validate_policy_io(recipe)
+    state_features, action_features, camera_inputs = _validate_policy_io(recipe)
     _validate_policy(recipe)
     _validate_optimization(recipe)
     _validate_training(recipe)
@@ -479,6 +500,8 @@ def resolve_recipe(
         "action_features": list(action_features),
         "state_dim": len(state_features),
         "action_dim": len(action_features),
+        "camera_inputs": list(camera_inputs),
+        "camera_keys": [camera["key"] for camera in _selected_cameras(recipe)],
     }
     recipe["source_recipe"] = (
         str(source_path.relative_to(REPO_ROOT))
@@ -492,6 +515,7 @@ def resolve_recipe(
         output_host_root=output_host_root,
         state_features=state_features,
         action_features=action_features,
+        camera_inputs=camera_inputs,
         noise_indices=noise_indices,
         noise_std=noise_std,
     )
@@ -517,10 +541,21 @@ def build_lerobot_args(resolved: ResolvedRecipe) -> list[str]:
     scheduler = recipe["scheduler"]
     training = recipe["training"]
     image_transforms = _mapping(dataset.get("image_transforms"), "dataset.image_transforms")
+    input_features = {
+        "observation.state": {"type": "STATE", "shape": [len(resolved.state_features)]},
+        **{
+            camera["key"]: {
+                "type": "VISUAL",
+                "shape": [3, camera["height"], camera["width"]],
+            }
+            for camera in _selected_cameras(recipe)
+        },
+    }
 
     args = [
         _flag("policy.type", "act"),
         _flag("policy.n_obs_steps", policy["n_obs_steps"]),
+        _flag("policy.input_features", input_features),
         _flag("policy.chunk_size", policy["chunk_size"]),
         _flag("policy.n_action_steps", policy["n_action_steps"]),
         _flag("policy.normalization_mapping", policy["normalization"]),
@@ -666,7 +701,7 @@ def policy_manifest(resolved: ResolvedRecipe) -> dict[str, Any]:
             "width": camera["width"],
             "height": camera["height"],
         }
-        for camera in policy_io["cameras"]
+        for camera in _selected_cameras(recipe)
     }
     return {
         "task": recipe["task"]["id"],
@@ -751,8 +786,8 @@ def _print_plan(resolved: ResolvedRecipe, command: list[str]) -> None:
     io = recipe["policy_io"]
     noise = recipe["state_noise"]
     camera_summary = ", ".join(
-        f"{camera['key'].rsplit('.', 1)[-1]}={camera['width']}x{camera['height']}"
-        for camera in io["cameras"]
+        f"{name}={io['cameras'][name]['width']}x{io['cameras'][name]['height']}"
+        for name in io["camera_inputs"]
     )
     noise_summary = "off"
     if noise["enabled"]:

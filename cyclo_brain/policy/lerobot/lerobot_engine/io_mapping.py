@@ -44,7 +44,8 @@ class IoMappingMixin:
     def _init_robot(self, robot_type: str) -> None:
         if self._policy_contract is None:
             raise RuntimeError("policy contract must be loaded before robot initialization")
-        self._robot = RobotClient(robot_type)
+        camera_sources = tuple(camera.source for camera in self._policy_contract.cameras)
+        self._robot = RobotClient(robot_type, camera_names=camera_sources)
 
         self._cameras = self._resolve_camera_mappings(
             self._robot.camera_names,

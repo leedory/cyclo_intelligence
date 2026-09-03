@@ -13,20 +13,25 @@ policy_io:
   state_components: [arm_left, arm_right, head, lift]
   action_components: [arm_left, arm_right, head, lift]
   inactive_actions: {}
+  # Change only this list for camera-ablation experiments.
+  camera_inputs: [head, left_wrist, right_wrist]
   cameras:
-    - key: observation.images.rgb.cam_left_head
+    head:
+      key: observation.images.rgb.cam_left_head
       source: cam_left_head
       width: 672
       height: 376
       orientation: landscape
       upright: true
-    - key: observation.images.rgb.cam_left_wrist
+    left_wrist:
+      key: observation.images.rgb.cam_left_wrist
       source: cam_left_wrist
       width: 480
       height: 640
       orientation: portrait
       upright: true
-    - key: observation.images.rgb.cam_right_wrist
+    right_wrist:
+      key: observation.images.rgb.cam_right_wrist
       source: cam_right_wrist
       width: 480
       height: 640

@@ -28,6 +28,12 @@ class ActRecipeTest(unittest.TestCase):
             REPO_ROOT / "training" / task / "act.yaml", validate_data=False
         )
 
+    @staticmethod
+    def select_cameras(resolved, *names: str):
+        payload = copy.deepcopy(resolved.payload)
+        payload["policy_io"]["camera_inputs"] = list(names)
+        return replace(resolved, payload=payload, camera_inputs=tuple(names))
+
     def test_task_contracts_are_exact_15_hz_19d_and_22d(self):
         fixed = self.resolve("task_000458")
         mobile = self.resolve("task_000525")
@@ -39,6 +45,109 @@ class ActRecipeTest(unittest.TestCase):
         self.assertEqual(mobile.state_features, mobile.action_features)
         self.assertEqual(mobile.state_features[-3:], ("linear_x", "linear_y", "angular_z"))
         self.assertEqual(fixed.payload["policy_io"]["fps"], 15)
+        self.assertEqual(fixed.camera_inputs, ("head", "left_wrist", "right_wrist"))
+
+    def test_camera_inputs_control_act_features_and_deployment_manifest(self):
+        resolved = self.resolve("task_000458")
+
+        for selected, expected_sources in (
+            (("head",), {"cam_left_head"}),
+            (("head", "left_wrist"), {"cam_left_head", "cam_left_wrist"}),
+            (("left_wrist", "right_wrist"), {"cam_left_wrist", "cam_right_wrist"}),
+        ):
+            with self.subTest(selected=selected):
+                candidate = self.select_cameras(resolved, *selected)
+                feature_arg = next(
+                    arg
+                    for arg in act_recipe.build_lerobot_args(candidate)
+                    if arg.startswith("--policy.input_features=")
+                )
+                features = json.loads(feature_arg.split("=", 1)[1])
+                self.assertIn("observation.state", features)
+                image_keys = {
+                    key for key in features if key.startswith("observation.images.")
+                }
+                self.assertEqual(
+                    image_keys,
+                    {
+                        resolved.payload["policy_io"]["cameras"][name]["key"]
+                        for name in selected
+                    },
+                )
+                self.assertEqual(
+                    set(act_recipe.policy_manifest(candidate)["cameras"]),
+                    expected_sources,
+                )
+
+    def test_camera_inputs_reject_empty_duplicate_or_unknown_names(self):
+        payload = copy.deepcopy(self.resolve("task_000458").payload)
+        payload.pop("resolved_policy_io")
+        payload.pop("source_recipe")
+        for selected, message in (
+            ([], "must not be empty"),
+            (["head", "head"], "contains duplicates"),
+            (["head", "elbow"], "unknown cameras"),
+        ):
+            with self.subTest(selected=selected), tempfile.TemporaryDirectory() as temporary:
+                payload["policy_io"]["camera_inputs"] = selected
+                recipe_path = Path(temporary) / "act.yaml"
+                recipe_path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+                with self.assertRaisesRegex(act_recipe.RecipeError, message):
+                    act_recipe.resolve_recipe(recipe_path, validate_data=False)
+
+    def test_dataset_may_contain_declared_unselected_cameras(self):
+        resolved = self.select_cameras(self.resolve("task_000458"), "head")
+        cameras = resolved.payload["policy_io"]["cameras"]
+        features = {
+            "observation.state": {
+                "shape": [len(resolved.state_features)],
+                "names": list(resolved.state_features),
+            },
+            "action": {
+                "shape": [len(resolved.action_features)],
+                "names": list(resolved.action_features),
+            },
+            **{
+                camera["key"]: {"shape": [3, camera["height"], camera["width"]]}
+                for camera in cameras.values()
+            },
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "meta").mkdir()
+            info_path = root / "meta" / "info.json"
+            info = {
+                "robot_type": resolved.payload["task"]["robot_type"],
+                "fps": 15,
+                "features": features,
+            }
+            info_path.write_text(json.dumps(info), encoding="utf-8")
+
+            act_recipe.validate_dataset(
+                resolved.payload,
+                root,
+                resolved.state_features,
+                resolved.action_features,
+            )
+
+            features[cameras["left_wrist"]["key"]]["shape"] = [3, 1, 1]
+            info_path.write_text(json.dumps(info), encoding="utf-8")
+            act_recipe.validate_dataset(
+                resolved.payload,
+                root,
+                resolved.state_features,
+                resolved.action_features,
+            )
+
+            features[cameras["head"]["key"]]["shape"] = [3, 1, 1]
+            info_path.write_text(json.dumps(info), encoding="utf-8")
+            with self.assertRaisesRegex(act_recipe.RecipeError, "camera shape mismatch"):
+                act_recipe.validate_dataset(
+                    resolved.payload,
+                    root,
+                    resolved.state_features,
+                    resolved.action_features,
+                )
 
     def test_task525_defaults_to_historical_normalized_noise(self):
         resolved = self.resolve("task_000525")

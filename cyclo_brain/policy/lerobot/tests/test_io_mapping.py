@@ -37,10 +37,64 @@ sys.modules[mapping_spec.name] = io_mapping
 mapping_spec.loader.exec_module(io_mapping)
 
 CameraContract = policy_contract.CameraContract
+PolicyContract = policy_contract.PolicyContract
+SimulationContract = policy_contract.SimulationContract
 IoMappingMixin = io_mapping.IoMappingMixin
 
 
 class IoMappingTest(unittest.TestCase):
+    def test_robot_client_subscribes_only_to_contract_cameras(self):
+        class FakeRobotClient:
+            requested = None
+
+            def __init__(self, robot_type, camera_names=None):
+                self.robot_type = robot_type
+                self.camera_names = list(camera_names or ())
+                FakeRobotClient.requested = tuple(camera_names or ())
+                self._config = {
+                    "cameras": {name: {} for name in self.camera_names},
+                    "joint_groups": {
+                        "follower_arm": {
+                            "role": "follower",
+                            "joint_names": ["joint_a"],
+                        }
+                    },
+                    "sensors": {},
+                }
+                self._action_groups = {"arm": {"joint_names": ["joint_a"]}}
+
+            def wait_for_ready(self, timeout):
+                return True
+
+        contract = PolicyContract(
+            task_id="task",
+            robot_type="ffw_sg2_rev1",
+            fps=15,
+            state_features=("joint_a",),
+            action_features=("joint_a",),
+            inactive_actions={},
+            cameras=(
+                CameraContract(
+                    "cam_left_head",
+                    "observation.images.rgb.cam_left_head",
+                    672,
+                    376,
+                ),
+            ),
+            simulation=SimulationContract("env", "random_env", "deterministic"),
+        )
+        engine = IoMappingMixin()
+        engine._policy_contract = contract
+        engine._robot = None
+        original = io_mapping.RobotClient
+        self.addCleanup(setattr, io_mapping, "RobotClient", original)
+        io_mapping.RobotClient = FakeRobotClient
+
+        engine._init_robot("ffw_sg2_rev1")
+
+        self.assertEqual(FakeRobotClient.requested, ("cam_left_head",))
+        self.assertEqual(engine._robot.camera_names, ["cam_left_head"])
+
     def test_camera_mapping_uses_exact_declared_source_and_key(self):
         cameras = (
             CameraContract(
