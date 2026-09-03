@@ -24,7 +24,9 @@ Owns:
 from __future__ import annotations
 
 import logging
+import dataclasses
 from pathlib import Path
+import tempfile
 from typing import Any, Dict, Tuple
 
 import torch
@@ -42,6 +44,43 @@ logger = logging.getLogger("lerobot_engine")
 
 class LoadingMixin:
     """Policy load helpers — weights, processors, resize hint."""
+
+    @staticmethod
+    def _load_config_without_optional_revision(model_path: str, policy_type: str):
+        """Parse a current checkpoint with an older LeRobot policy config class.
+
+        The workstation trainer records ``pretrained_revision``. The current
+        arm64 LeRobot image predates that optional field, while the actual ACT
+        architecture and weights are unchanged. Keep the checkpoint immutable
+        and remove only that one unsupported metadata field in a temporary copy.
+        """
+        import draccus
+        import json
+
+        config_class = PreTrainedConfig.get_choice_class(policy_type)
+        accepted = {field.name for field in dataclasses.fields(config_class)}
+        config_path = Path(model_path) / "config.json"
+        with config_path.open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+        unsupported = set(payload) - accepted - {"type"}
+        if unsupported != {"pretrained_revision"}:
+            raise ValueError(
+                "cannot adapt policy config; unsupported fields are "
+                f"{sorted(unsupported)}"
+            )
+        payload.pop("type", None)
+        payload.pop("pretrained_revision", None)
+
+        temporary_path = None
+        try:
+            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+                json.dump(payload, handle)
+                temporary_path = Path(handle.name)
+            with draccus.config_type("json"):
+                return draccus.parse(config_class, temporary_path, args=[])
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
     @staticmethod
     def _load_policy_contract_if_present(model_path: str):
@@ -95,7 +134,19 @@ class LoadingMixin:
             policy_config.device = "cpu"
             policy = PolicyClass.from_pretrained(model_path, config=policy_config)
         else:
-            policy = PolicyClass.from_pretrained(model_path)
+            try:
+                policy = PolicyClass.from_pretrained(model_path)
+            except ValueError as error:
+                if "pretrained_revision" not in str(error):
+                    raise
+                logger.info(
+                    "Loading current checkpoint without unsupported optional "
+                    "pretrained_revision metadata"
+                )
+                policy_config = LoadingMixin._load_config_without_optional_revision(
+                    model_path, policy_type
+                )
+                policy = PolicyClass.from_pretrained(model_path, config=policy_config)
 
         # MolmoAct2 errors out unless the action mode is set. We run the
         # continuous (flow matching) head; a checkpoint that names one keeps it.

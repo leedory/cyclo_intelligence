@@ -65,6 +65,7 @@ optimization = load_module("optimization")
 
 class FakePolicy:
     from_pretrained_calls = []
+    fail_on_unadapted_config = False
 
     def __init__(self, config):
         self.config = config
@@ -74,6 +75,8 @@ class FakePolicy:
     @classmethod
     def from_pretrained(cls, model_path, **kwargs):
         cls.from_pretrained_calls.append((model_path, kwargs))
+        if cls.fail_on_unadapted_config and "config" not in kwargs:
+            raise ValueError("The fields `pretrained_revision` are not valid for ACTConfig")
         config = kwargs.get("config") or types.SimpleNamespace(type="act")
         return cls(config)
 
@@ -99,6 +102,7 @@ class FakeConfigLoader:
 class FastWamLoadingTest(unittest.TestCase):
     def setUp(self):
         FakePolicy.from_pretrained_calls.clear()
+        FakePolicy.fail_on_unadapted_config = False
         FakeConfigLoader.loaded.clear()
         loading.get_policy_class = mock.Mock(return_value=FakePolicy)
         loading.make_pre_post_processors = mock.Mock(return_value=("pre", "post"))
@@ -140,6 +144,29 @@ class FastWamLoadingTest(unittest.TestCase):
         self.assertEqual(FakePolicy.from_pretrained_calls[0][1], {})
         self.assertEqual(policy.to_calls, ["cuda"])
         self.assertEqual(policy.eval_calls, 1)
+
+    def test_current_checkpoint_retries_with_optional_revision_removed(self):
+        compatible_config = types.SimpleNamespace(type="act")
+        FakePolicy.fail_on_unadapted_config = True
+        with (
+            tempfile.TemporaryDirectory() as model_path,
+            mock.patch.object(
+                loading.LoadingMixin,
+                "_load_config_without_optional_revision",
+                return_value=compatible_config,
+            ) as adapt,
+        ):
+            self.write_config(model_path, "act")
+            policy, _, _ = loading.LoadingMixin._load_policy_assets(
+                model_path, torch.device("cuda")
+            )
+
+        adapt.assert_called_once_with(model_path, "act")
+        self.assertEqual(len(FakePolicy.from_pretrained_calls), 2)
+        self.assertEqual(
+            FakePolicy.from_pretrained_calls[1][1], {"config": compatible_config}
+        )
+        self.assertEqual(policy.to_calls, ["cuda"])
 
 
 class FakeChild:
