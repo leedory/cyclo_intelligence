@@ -18,6 +18,7 @@ import numpy as np
 import torch
 
 from .constants import STATE_KEY as _STATE_KEY
+from .contract_preprocessing import build_contract_observation
 from .image_preprocessing import prepare_policy_image
 
 
@@ -29,6 +30,9 @@ class PreprocessingMixin:
 
     def _build_observation(self, task_instruction: str) -> Dict[str, Any]:
         """Pull raw sensor data from RobotClient and build a policy batch."""
+        if getattr(self, "_policy_contract", None) is not None:
+            return build_contract_observation(self, task_instruction)
+
         assert self._robot is not None
 
         images = self._robot.get_images(format="rgb")

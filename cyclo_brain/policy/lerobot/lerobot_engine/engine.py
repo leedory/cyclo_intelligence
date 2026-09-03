@@ -106,6 +106,7 @@ class LeRobotEngine(
         self._robot: Optional[RobotClient] = None
         self._device: Optional[torch.device] = None
         self._loaded_model_path: Optional[str] = None
+        self._policy_contract = None
 
         # Resolved after load: which cameras / joint groups feed which
         # policy keys. ``_cameras`` maps RobotClient camera name → policy
@@ -113,6 +114,8 @@ class LeRobotEngine(
         # is the sorted list of follower joint groups whose positions are
         # concatenated into ``observation.state``.
         self._cameras: Dict[str, str] = {}
+        self._camera_contracts: Dict[str, Any] = {}
+        self._state_sources: List[Any] = []
         self._state_modalities: List[str] = []
         self._action_keys: List[str] = []
         self._has_mobile_state: bool = False
@@ -149,6 +152,12 @@ class LeRobotEngine(
             # a training-output root containing ``training_state/``
             # alongside (lerobot-train layout).
             model_path = self._resolve_model_dir(model_path)
+            contract = self._load_policy_contract_if_present(model_path)
+            if contract is not None and contract.robot_type != robot_type:
+                raise RuntimeError(
+                    f"checkpoint robot_type={contract.robot_type!r} does not match "
+                    f"requested robot_type={robot_type!r}"
+                )
 
             # Skip weights load when a second LOAD arrives before UNLOAD and
             # we're just reattaching the robot client for the same model.
@@ -173,9 +182,14 @@ class LeRobotEngine(
                 self._loaded_model_path = model_path
                 self._apply_policy_optimization(model_path, request)
 
+            if contract is not None:
+                self._validate_policy_contract(contract, self._policy)
+            self._policy_contract = contract
             self._init_robot(robot_type)
             self._loaded_robot_type = robot_type
-            self._image_resize = self._infer_image_resize(self._policy)
+            self._image_resize = (
+                {} if contract is not None else self._infer_image_resize(self._policy)
+            )
 
             return {
                 "success": True,
@@ -206,6 +220,13 @@ class LeRobotEngine(
 
             chunk = self._to_numpy_chunk(action)
             T, D = chunk.shape
+            if self._policy_contract is not None:
+                expected_dim = len(self._policy_contract.action_features)
+                if D != expected_dim:
+                    raise RuntimeError(
+                        f"Policy returned action dimension {D}, but cyclo_policy.yaml declares "
+                        f"{expected_dim} named actions"
+                    )
             logger.info("Action chunk: T=%d, D=%d", T, D)
             return {
                 "success": True,
@@ -237,10 +258,13 @@ class LeRobotEngine(
         self._postprocessor = None
         self._device = None
         self._loaded_model_path = None
+        self._policy_contract = None
         self._loaded_robot_type = None
         self._image_resize = {}
 
         self._cameras = {}
+        self._camera_contracts = {}
+        self._state_sources = []
         self._state_modalities = []
         self._action_keys = []
         self._has_mobile_state = False

@@ -30,6 +30,7 @@ from typing import Any, Dict, Tuple
 import torch
 
 from .image_preprocessing import infer_image_resize_targets
+from .policy_contract import load_policy_contract, validate_policy_config
 
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.policies import get_policy_class, make_pre_post_processors
@@ -41,6 +42,16 @@ logger = logging.getLogger("lerobot_engine")
 
 class LoadingMixin:
     """Policy load helpers — weights, processors, resize hint."""
+
+    @staticmethod
+    def _load_policy_contract_if_present(model_path: str):
+        if not (Path(model_path) / "cyclo_policy.yaml").is_file():
+            return None
+        return load_policy_contract(model_path)
+
+    @staticmethod
+    def _validate_policy_contract(contract, policy: PreTrainedPolicy) -> None:
+        validate_policy_config(contract, policy.config)
 
     @staticmethod
     def _resolve_model_dir(model_path: str) -> str:

@@ -28,6 +28,7 @@ import re
 from typing import Dict, Iterable
 
 from .constants import IMAGE_KEY_PREFIX as _IMAGE_KEY_PREFIX
+from .contract_io import init_contract_robot
 
 from robot_client import RobotClient
 
@@ -45,6 +46,10 @@ class IoMappingMixin:
 
     def _init_robot(self, robot_type: str) -> None:
         """Create RobotClient + resolve camera / state mappings."""
+        if getattr(self, "_policy_contract", None) is not None:
+            init_contract_robot(self, robot_type)
+            return
+
         self._robot = RobotClient(robot_type)
 
         # Cameras: only those that match a policy input key
