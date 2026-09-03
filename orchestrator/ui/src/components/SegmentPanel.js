@@ -546,7 +546,7 @@ export default function SegmentPanel() {
       if (isInputFocused()) return;
       if (e.key === ' ' || e.code === 'Space') {
         if (canStartRecord) handleRecordStart();
-      } else if (e.key === 'Enter') {
+      } else if (e.key === 'Enter' || e.code === 'NumpadEnter') {
         e.preventDefault();
         if (isRecording && !savingInProgress && !serverResetInProgress) {
           handleSlotSave(isSingleMode ? 0 : activeSlotIndex);
