@@ -142,6 +142,41 @@ def test_enter_lerobot_uses_plain_bash(tmp_path):
     assert not any("bash -lc" in call for call in docker_calls)
 
 
+def test_build_ui_uses_container_user_for_root_mounted_checkout(tmp_path):
+    docker_dir = _copy_container_script(tmp_path)
+    log_path = tmp_path / "docker.log"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    docker_stub = bin_dir / "docker"
+    docker_stub.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"$*\" >> \"$DOCKER_STUB_LOG\"\n"
+        "if [ \"$1\" = ps ]; then\n"
+        "  printf '%s\\n' 'cyclo_intelligence_s2r'\n"
+        "fi\n"
+        "exit 0\n"
+    )
+    docker_stub.chmod(0o755)
+
+    subprocess.run(
+        [str(docker_dir / "container.sh"), "build-ui"],
+        cwd=tmp_path,
+        env=_stub_env(tmp_path, log_path),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    docker_calls = log_path.read_text().splitlines()
+    npm_build = next(call for call in docker_calls if " npm run build" in call)
+    assert npm_build == (
+        "exec -e HOME=/tmp "
+        "-w /root/ros2_ws/src/cyclo_intelligence/orchestrator/ui "
+        "cyclo_intelligence_s2r npm run build"
+    )
+    assert " -u " not in f" {npm_build} "
+
+
 def test_start_pulls_main_image_only(tmp_path):
     log_path = tmp_path / "docker.log"
     docker_stub = tmp_path / "docker"
