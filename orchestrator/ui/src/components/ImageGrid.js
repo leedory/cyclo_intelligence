@@ -21,17 +21,12 @@ import toast from 'react-hot-toast';
 import { useRosServiceCaller } from '../hooks/useRosServiceCaller';
 import ImageGridCell from './ImageGridCell';
 import ImageTopicSelectModal from './ImageTopicSelectModal';
+import { DEFAULT_POLICY_CAMERA_LAYOUT, getPolicyCameraLayout } from './cameraLayout';
 import { setImageTopicList, setAssignedImageTopics } from '../features/ros/rosSlice';
 
-// [left(idx 0), center(idx 1), right(idx 2)]
-const DEFAULT_LAYOUT = [
-  { aspect: '3/4' },
-  { aspect: '16/9' },
-  { aspect: '3/4' },
-];
 const MANUAL_ROTATION_DEG = 270;
 
-const emptyAssignment = () => Array(DEFAULT_LAYOUT.length).fill(null);
+const emptyAssignment = () => Array(DEFAULT_POLICY_CAMERA_LAYOUT.length).fill(null);
 
 const normalizeAssignment = (topics) => {
   const normalized = emptyAssignment();
@@ -122,7 +117,7 @@ export default function ImageGrid({ isActive = true }) {
 
   const { getImageTopicList } = useRosServiceCaller();
 
-  const layout = DEFAULT_LAYOUT;
+  const layout = useMemo(() => getPolicyCameraLayout(robotType), [robotType]);
 
   const rotationDegrees = useMemo(
     () => Array.from({ length: layout.length }, (_, idx) => (
@@ -291,11 +286,10 @@ export default function ImageGrid({ isActive = true }) {
     'gap-[0.5vw]', 'w-full', 'h-full', 'max-w-full', 'max-h-full', 'overflow-hidden'
   );
 
-  const classImageGridCell = (idx) =>
-    clsx('min-w-0', 'min-h-0', 'flex', 'items-center', 'justify-center', 'relative', {
-      'flex-[7_1_0]': idx === 1,
-      'flex-[3_1_0]': idx !== 1,
-    });
+  const classImageGridCell = (cell) => clsx(
+    'min-w-0', 'min-h-0', 'flex', 'items-center', 'justify-center', 'relative',
+    cell.flexClass
+  );
 
   const classTopicLabel = clsx(
     'absolute', 'bottom-2', 'left-2', 'text-xs', 'text-white',
@@ -306,7 +300,7 @@ export default function ImageGrid({ isActive = true }) {
     <div className="w-full h-full overflow-hidden">
       <div className={classImageGridArea}>
         {layout.map((cell, idx) => (
-          <div key={idx} className={classImageGridCell(idx)} data-cell-idx={idx}>
+          <div key={idx} className={classImageGridCell(cell)} data-cell-idx={idx}>
             <ImageGridCell
               topic={asignedImageTopicList[idx]}
               aspect={cell.aspect}
