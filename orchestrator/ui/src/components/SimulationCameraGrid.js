@@ -7,22 +7,22 @@ import {
 
 const CAMERAS = {
   overhead: {
-    label: 'Overhead',
+    label: 'Overhead · simulation view',
     topic: '/camera_external/color/image_rect_raw/compressed',
     aspect: '1/1',
   },
   head: {
-    label: 'Head · policy input · 15 Hz',
+    label: 'Head · simulation view · 15 Hz',
     topic: '/zed/zed_node/left/image_rect_color/compressed',
     aspect: SG2_POLICY_CAMERA_LAYOUT[1].aspect,
   },
   left: {
-    label: 'Left wrist · policy input · 15 Hz',
+    label: 'Left wrist · simulation view · 15 Hz',
     topic: '/camera_left/camera_left/color/image_rect_raw/compressed',
     aspect: SG2_POLICY_CAMERA_LAYOUT[0].aspect,
   },
   right: {
-    label: 'Right wrist · policy input · 15 Hz',
+    label: 'Right wrist · simulation view · 15 Hz',
     topic: '/camera_right/camera_right/color/image_rect_raw/compressed',
     aspect: SG2_POLICY_CAMERA_LAYOUT[2].aspect,
   },

@@ -7,7 +7,7 @@ jest.mock('./ImageGridCell', () => ({ topic, aspect }) => (
 ));
 
 describe('SimulationCameraGrid', () => {
-  test('prioritizes the head view and keeps canonical policy camera ratios', () => {
+  test('prioritizes the head view and keeps canonical simulation camera ratios', () => {
     const { container } = render(<SimulationCameraGrid />);
     const root = container.firstChild;
     const policyGrid = root.children[1];
@@ -20,5 +20,9 @@ describe('SimulationCameraGrid', () => {
       .toHaveAttribute('data-aspect', '3/4');
     expect(screen.getByTestId('/camera_right/camera_right/color/image_rect_raw/compressed'))
       .toHaveAttribute('data-aspect', '3/4');
+    expect(screen.getByText('Head · simulation view · 15 Hz')).toBeInTheDocument();
+    expect(screen.getByText('Left wrist · simulation view · 15 Hz')).toBeInTheDocument();
+    expect(screen.getByText('Right wrist · simulation view · 15 Hz')).toBeInTheDocument();
+    expect(screen.queryByText(/policy input/i)).not.toBeInTheDocument();
   });
 });
