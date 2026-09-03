@@ -23,14 +23,18 @@ Owns:
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import logging
 from pathlib import Path
+import tempfile
 from typing import Any, Dict, Tuple
 
 import torch
 
 from .image_preprocessing import infer_image_resize_targets
 
+from lerobot.configs import PreTrainedConfig
 from lerobot.policies import get_policy_class, make_pre_post_processors
 from lerobot.policies.pretrained import PreTrainedPolicy
 
@@ -40,6 +44,47 @@ logger = logging.getLogger("lerobot_engine")
 
 class LoadingMixin:
     """Policy load helpers — weights, processors, resize hint."""
+
+    @staticmethod
+    def _load_compatible_policy_config(
+        model_path: str, policy_class: type[PreTrainedPolicy]
+    ) -> PreTrainedConfig | None:
+        """Load configs saved by newer LeRobot releases on older runtimes.
+
+        ``pretrained_revision`` only selects a Hub commit, branch, or tag while
+        resolving a remote pretrained model.  Once a complete checkpoint is
+        local, it has no effect on model construction or weights.  LeRobot
+        versions predating that field reject the otherwise compatible config,
+        so parse a temporary copy without it and leave the checkpoint intact.
+
+        Return ``None`` when no compatibility handling is needed so the normal
+        upstream ``from_pretrained`` path remains unchanged.
+        """
+        config_path = Path(model_path) / "config.json"
+        if not config_path.exists():
+            return None
+
+        with config_path.open() as f:
+            config_data = json.load(f)
+
+        config_class = policy_class.config_class
+        supported_fields = {field.name for field in dataclasses.fields(config_class)}
+        if "pretrained_revision" not in config_data or "pretrained_revision" in supported_fields:
+            return None
+
+        config_data.pop("pretrained_revision")
+        with tempfile.TemporaryDirectory(prefix="lerobot-config-compat-") as temp_dir:
+            compatible_config_path = Path(temp_dir) / "config.json"
+            with compatible_config_path.open("w") as f:
+                json.dump(config_data, f)
+            config = PreTrainedConfig.from_pretrained(temp_dir)
+
+        logger.warning(
+            "Ignoring checkpoint field 'pretrained_revision': this LeRobot runtime does not support it, "
+            "and Hub revision selection is not applicable to the local checkpoint %s",
+            model_path,
+        )
+        return config
 
     @staticmethod
     def _resolve_model_dir(model_path: str) -> str:
@@ -61,8 +106,6 @@ class LoadingMixin:
         model_path: str, device: torch.device
     ) -> tuple[PreTrainedPolicy, Any, Any]:
         """Load policy weights + saved pre/post processors."""
-        import json
-
         config_path = Path(model_path) / "config.json"
         if config_path.exists():
             with open(config_path) as f:
@@ -75,10 +118,14 @@ class LoadingMixin:
         logger.info("Policy type: %s", policy_type)
         PolicyClass = get_policy_class(policy_type)
 
-        # ``from_pretrained`` reads config.json, instantiates the policy
-        # config, then loads safetensors. We don't pass ``config=`` — the
-        # saved config is already what we want.
-        policy = PolicyClass.from_pretrained(model_path)
+        # Newer checkpoints may include Hub-only metadata that an older
+        # container does not know. Parse a compatible temporary copy when
+        # needed, while loading the original checkpoint weights unchanged.
+        policy_config = LoadingMixin._load_compatible_policy_config(model_path, PolicyClass)
+        if policy_config is None:
+            policy = PolicyClass.from_pretrained(model_path)
+        else:
+            policy = PolicyClass.from_pretrained(model_path, config=policy_config)
         policy = policy.to(device).eval()
         logger.info("Policy weights loaded on %s", device)
 

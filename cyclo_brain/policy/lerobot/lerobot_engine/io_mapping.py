@@ -23,9 +23,11 @@ Owns:
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from typing import Dict, Iterable
+from pathlib import Path
+from typing import Any, Dict, Iterable
 
 from .constants import IMAGE_KEY_PREFIX as _IMAGE_KEY_PREFIX
 
@@ -33,6 +35,9 @@ from robot_client import RobotClient
 
 
 logger = logging.getLogger("lerobot_engine")
+
+
+_POLICY_IO_MAPPING_FILENAME = "cyclo_policy_io.json"
 
 
 _CAMERA_SEMANTIC_RE = re.compile(
@@ -94,8 +99,30 @@ class IoMappingMixin:
         if self._has_mobile_state:
             modalities = sorted(set(modalities) | {"mobile"})
 
-        self._state_modalities = modalities
-        self._action_keys = list(modalities)
+        policy_io = self._load_policy_io_mapping(self._loaded_model_path)
+        # Keep checkpoint-specific camera orientation out of the shared robot
+        # config. This is intentionally opt-in: absent an entry, every policy
+        # continues to use the robot's standard camera metadata.
+        self._camera_rotation_overrides = self._resolve_camera_rotation_overrides(
+            policy_io,
+            active,
+        )
+        self._state_modalities = self._resolve_policy_modalities(
+            modalities,
+            self._policy_flat_feature_dim("input_features", "observation.state"),
+            policy_io,
+            "observation_state_modalities",
+            "observation_state_joint_names",
+            label="observation.state",
+        )
+        self._action_keys = self._resolve_policy_modalities(
+            modalities,
+            self._policy_flat_feature_dim("output_features", "action"),
+            policy_io,
+            "action_modalities",
+            "action_joint_names",
+            label="action",
+        )
 
         # Block until at least one frame from each sensor lands. 10 s is
         # generous — typical hardware comes up in <2 s.
@@ -170,6 +197,166 @@ class IoMappingMixin:
                 f"{missing}; robot has {camera_names}; matched {active}"
             )
         return active
+
+    @staticmethod
+    def _load_policy_io_mapping(model_path: str | None) -> dict[str, Any]:
+        """Load optional Cyclo joint semantics stored beside a checkpoint.
+
+        LeRobot's ACT config only stores feature dimensions, not the names or
+        order of individual joints. A ``cyclo_policy_io.json`` sidecar makes a
+        reduced-joint checkpoint unambiguous without changing the shared robot
+        configuration. Checkpoint roots may be passed directly, or as the
+        standard ``checkpoints/<step>/pretrained_model`` directory.
+        """
+        if not model_path:
+            return {}
+
+        root = Path(model_path)
+        model_root = root
+        if root.name == "pretrained_model" and root.parent.parent.name == "checkpoints":
+            model_root = root.parent.parent.parent
+        candidates = [root / _POLICY_IO_MAPPING_FILENAME]
+        if model_root != root:
+            candidates.append(model_root / _POLICY_IO_MAPPING_FILENAME)
+        candidates.append(
+            Path(__file__).with_name("model_io_mappings")
+            / f"{model_root.name}.json"
+        )
+
+        for candidate in candidates:
+            if not candidate.is_file():
+                continue
+            with candidate.open() as f:
+                payload = json.load(f)
+            if not isinstance(payload, dict):
+                raise RuntimeError(
+                    f"{candidate} must contain a JSON object, got {type(payload).__name__}"
+                )
+            logger.info("Loaded policy I/O mapping: %s", candidate)
+            return payload
+        return {}
+
+    @staticmethod
+    def _resolve_camera_rotation_overrides(
+        policy_io: dict[str, Any],
+        active_cameras: Dict[str, str],
+    ) -> dict[str, int]:
+        """Validate optional per-policy camera rotations.
+
+        ``camera_rotation_deg`` is a map of RobotClient camera name to one of
+        0/90/180/270. It exists only in a policy I/O mapping, so it cannot
+        change the default camera treatment for unrelated policies.
+        """
+        declared = policy_io.get("camera_rotation_deg")
+        if declared is None:
+            return {}
+        if not isinstance(declared, dict):
+            raise RuntimeError("camera_rotation_deg must be an object")
+
+        overrides: dict[str, int] = {}
+        for camera_name, rotation in declared.items():
+            if not isinstance(camera_name, str):
+                raise RuntimeError("camera_rotation_deg keys must be camera names")
+            if camera_name not in active_cameras:
+                raise RuntimeError(
+                    f"camera_rotation_deg contains inactive camera {camera_name}; "
+                    f"active={sorted(active_cameras)}"
+                )
+            if not isinstance(rotation, int) or rotation not in {0, 90, 180, 270}:
+                raise RuntimeError(
+                    f"camera_rotation_deg[{camera_name!r}] must be one of 0, 90, 180, 270"
+                )
+            overrides[camera_name] = rotation
+        return overrides
+
+    def _resolve_policy_modalities(
+        self,
+        available_modalities: Iterable[str],
+        expected_dim: int | None,
+        policy_io: dict[str, Any],
+        modalities_key: str,
+        joint_names_key: str,
+        *,
+        label: str,
+    ) -> list[str]:
+        """Resolve an ordered model-vector layout from optional sidecar data.
+
+        A dimension alone cannot distinguish ``arm_left`` from ``arm_right``
+        when both have the same width. Therefore an incomplete layout is an
+        error unless a sidecar declares the intended modalities explicitly.
+        """
+        available = list(available_modalities)
+        declared = policy_io.get(modalities_key)
+        if declared is None:
+            selected = available
+        else:
+            if not isinstance(declared, list) or not all(isinstance(item, str) for item in declared):
+                raise RuntimeError(f"{modalities_key} must be a list of modality names")
+            selected = list(declared)
+            if len(set(selected)) != len(selected):
+                raise RuntimeError(f"{modalities_key} contains duplicate modalities: {selected}")
+            unknown = [item for item in selected if item not in available]
+            if unknown:
+                raise RuntimeError(
+                    f"{modalities_key} contains unavailable robot modalities {unknown}; "
+                    f"available={available}"
+                )
+
+        widths = {modality: self._modality_width(modality) for modality in selected}
+        if any(width <= 0 for width in widths.values()):
+            raise RuntimeError(f"Cannot determine widths for {label} modalities: {widths}")
+        actual_dim = sum(widths.values())
+        if expected_dim is not None and actual_dim != expected_dim:
+            source = _POLICY_IO_MAPPING_FILENAME if declared is not None else "robot configuration"
+            raise RuntimeError(
+                f"{label} expects {expected_dim} values but {source} resolves {actual_dim} "
+                f"from {selected}. Add the exact layout to {_POLICY_IO_MAPPING_FILENAME}."
+            )
+
+        declared_names = policy_io.get(joint_names_key)
+        if declared_names is not None:
+            if not isinstance(declared_names, list) or not all(
+                isinstance(item, str) for item in declared_names
+            ):
+                raise RuntimeError(f"{joint_names_key} must be a list of joint names")
+            actual_names = [
+                name for modality in selected for name in self._modality_joint_names(modality)
+            ]
+            if declared_names != actual_names:
+                raise RuntimeError(
+                    f"{joint_names_key} does not match the active robot layout: "
+                    f"expected {actual_names}, got {declared_names}"
+                )
+        return selected
+
+    def _modality_width(self, modality: str) -> int:
+        return len(self._modality_joint_names(modality))
+
+    def _modality_joint_names(self, modality: str) -> list[str]:
+        """Return a modality's exact model-vector labels in robot-config order."""
+        if modality == "mobile":
+            cfg = getattr(self._robot, "_action_groups", {}).get("mobile", {})
+            return list(cfg.get("joint_names", ["linear_x", "linear_y", "angular_z"]))
+
+        group = f"follower_{modality}"
+        cfg = getattr(self._robot, "_config", {}).get("joint_groups", {}).get(group, {})
+        return list(cfg.get("joint_names", []))
+
+    def _policy_flat_feature_dim(
+        self, feature_collection: str, feature_name: str
+    ) -> int | None:
+        try:
+            features = getattr(self._policy.config, feature_collection, {}) or {}
+            feature = features.get(feature_name)
+            shape = feature.get("shape") if isinstance(feature, dict) else getattr(feature, "shape", None)
+            if not shape:
+                return None
+            dim = 1
+            for item in shape:
+                dim *= int(item)
+            return dim
+        except Exception:
+            return None
 
     @staticmethod
     def _camera_policy_key_candidates(camera_name: str) -> set:

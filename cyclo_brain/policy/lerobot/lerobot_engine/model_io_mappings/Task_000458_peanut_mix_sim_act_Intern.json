@@ -1,0 +1,41 @@
+{
+  "format_version": 1,
+  "observation_state_modalities": [
+    "arm_right",
+    "lift",
+    "mobile"
+  ],
+  "observation_state_joint_names": [
+    "arm_r_joint1",
+    "arm_r_joint2",
+    "arm_r_joint3",
+    "arm_r_joint4",
+    "arm_r_joint5",
+    "arm_r_joint6",
+    "arm_r_joint7",
+    "gripper_r_joint1",
+    "lift_joint",
+    "linear_x",
+    "linear_y",
+    "angular_z"
+  ],
+  "action_modalities": [
+    "arm_right",
+    "lift",
+    "mobile"
+  ],
+  "action_joint_names": [
+    "arm_r_joint1",
+    "arm_r_joint2",
+    "arm_r_joint3",
+    "arm_r_joint4",
+    "arm_r_joint5",
+    "arm_r_joint6",
+    "arm_r_joint7",
+    "gripper_r_joint1",
+    "lift_joint",
+    "linear_x",
+    "linear_y",
+    "angular_z"
+  ]
+}

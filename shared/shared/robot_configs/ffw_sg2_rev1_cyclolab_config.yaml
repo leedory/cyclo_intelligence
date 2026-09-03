@@ -1,7 +1,7 @@
 orchestrator:
   ros__parameters:
-    ffw_sg2_rev1:
-      robot_name: FFW SG2 Rev1
+    ffw_sg2_rev1_cyclolab:
+      robot_name: FFW SG2 Rev1 CycloLab
       urdf_path: urdf/ffw_sg2_follower.urdf
       joystick:
         trigger_topic: /leader/joystick_controller/tact_trigger
@@ -13,11 +13,9 @@ orchestrator:
           cam_left_wrist:
             topic: /camera_left/camera_left/color/image_rect_raw/compressed
             msg_type: sensor_msgs/msg/CompressedImage
-            rotation_deg: 270
           cam_right_wrist:
             topic: /camera_right/camera_right/color/image_rect_raw/compressed
             msg_type: sensor_msgs/msg/CompressedImage
-            rotation_deg: 270
         state:
           upper_body:
             topic: /joint_states

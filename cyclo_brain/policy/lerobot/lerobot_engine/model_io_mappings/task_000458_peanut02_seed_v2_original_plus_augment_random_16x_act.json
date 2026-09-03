@@ -1,0 +1,19 @@
+{
+  "format_version": 1,
+  "camera_rotation_deg": {
+    "cam_left_wrist": 0,
+    "cam_right_wrist": 0
+  },
+  "observation_state_modalities": ["arm_left", "arm_right", "head", "lift"],
+  "observation_state_joint_names": [
+    "arm_l_joint1", "arm_l_joint2", "arm_l_joint3", "arm_l_joint4", "arm_l_joint5", "arm_l_joint6", "arm_l_joint7", "gripper_l_joint1",
+    "arm_r_joint1", "arm_r_joint2", "arm_r_joint3", "arm_r_joint4", "arm_r_joint5", "arm_r_joint6", "arm_r_joint7", "gripper_r_joint1",
+    "head_joint1", "head_joint2", "lift_joint"
+  ],
+  "action_modalities": ["arm_left", "arm_right", "head", "lift"],
+  "action_joint_names": [
+    "arm_l_joint1", "arm_l_joint2", "arm_l_joint3", "arm_l_joint4", "arm_l_joint5", "arm_l_joint6", "arm_l_joint7", "gripper_l_joint1",
+    "arm_r_joint1", "arm_r_joint2", "arm_r_joint3", "arm_r_joint4", "arm_r_joint5", "arm_r_joint6", "arm_r_joint7", "gripper_r_joint1",
+    "head_joint1", "head_joint2", "lift_joint"
+  ]
+}

@@ -49,6 +49,7 @@ public:
   rclcpp::CallbackGroup::SharedPtr camera_callback_group_;
   rclcpp::CallbackGroup::SharedPtr joint_callback_group_;
   rclcpp::CallbackGroup::SharedPtr other_callback_group_;
+  rclcpp::CallbackGroup::SharedPtr monitor_callback_group_;
   rclcpp::CallbackGroup::SharedPtr service_callback_group_;
 
 private:

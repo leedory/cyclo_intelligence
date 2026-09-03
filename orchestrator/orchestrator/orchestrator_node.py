@@ -2815,7 +2815,25 @@ class OrchestratorNode(Node):
                 f'Joystick trigger ignored without communicator: {joystick_mode}')
             return
 
-        if joystick_mode in ('right', 'left'):
+        if joystick_mode == 'save_record':
+            snapshot_on_recording, snapshot_on_inference = (
+                self._snapshot_session_state()
+            )
+            if snapshot_on_inference:
+                if snapshot_on_recording:
+                    self._toggle_inference_trigger_recording(True)
+                else:
+                    self.get_logger().debug(
+                        'Tact save ignored: no active inference recording')
+                return
+            if snapshot_on_recording:
+                self._stop_record_trigger_segment()
+            else:
+                self.get_logger().debug(
+                    'Tact save ignored: no active recording')
+            return
+
+        if joystick_mode in ('right', 'left', 'left_record'):
             snapshot_on_recording, snapshot_on_inference = (
                 self._snapshot_session_state()
             )
@@ -2824,7 +2842,7 @@ class OrchestratorNode(Node):
                     self.get_logger().warning(
                         'Inference trigger ignored: no inference task info available')
                     return
-                if joystick_mode == 'right':
+                if joystick_mode in ('right', 'left_record'):
                     self._toggle_inference_trigger_recording(snapshot_on_recording)
                 elif snapshot_on_recording:
                     self._cancel_inference_trigger_recording()
@@ -2837,7 +2855,7 @@ class OrchestratorNode(Node):
                 self.get_logger().warning(
                     'Record trigger ignored: prepare the Record session first')
                 return
-            if joystick_mode == 'right':
+            if joystick_mode in ('right', 'left_record'):
                 if snapshot_on_recording:
                     self._stop_record_trigger_segment()
                 else:

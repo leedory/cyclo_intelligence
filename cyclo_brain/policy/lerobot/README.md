@@ -4,6 +4,9 @@
 
 LeRobot integration for Cyclo Intelligence. This folder contains the executor and Docker configuration for running LeRobot training and inference via Zenoh communication.
 
+학습 데이터와 deployment checkpoint의 관절·카메라 I/O 계약은
+[TRAINING_IO_CONTRACT.md](TRAINING_IO_CONTRACT.md)를 따른다.
+
 ## Folder Structure
 
 ```

@@ -46,10 +46,14 @@ class PreprocessingMixin:
             if img is None:
                 return self._fail(f"Missing camera frame: {cam_name}")
             cam_cfg = self._robot._config.get("cameras", {}).get(cam_name, {})
+            rotation_deg = getattr(self, "_camera_rotation_overrides", {}).get(
+                cam_name,
+                cam_cfg.get("rotation_deg", 0),
+            )
             try:
                 img = prepare_policy_image(
                     img,
-                    rotation_deg=cam_cfg.get("rotation_deg", 0),
+                    rotation_deg=rotation_deg,
                     target_size=self._image_resize.get(policy_key),
                 )
             except Exception as exc:
