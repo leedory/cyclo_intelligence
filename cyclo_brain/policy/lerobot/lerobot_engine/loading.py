@@ -23,13 +23,14 @@ Owns:
 
 from __future__ import annotations
 
-import logging
 import dataclasses
+import logging
 from pathlib import Path
 import tempfile
 from typing import Any, Dict, Tuple
 
 import torch
+from draccus.utils import DecodingError
 
 from .image_preprocessing import infer_image_resize_targets
 from .policy_contract import load_policy_contract, validate_policy_config
@@ -136,7 +137,7 @@ class LoadingMixin:
         else:
             try:
                 policy = PolicyClass.from_pretrained(model_path)
-            except ValueError as error:
+            except (ValueError, DecodingError) as error:
                 if "pretrained_revision" not in str(error):
                     raise
                 logger.info(
