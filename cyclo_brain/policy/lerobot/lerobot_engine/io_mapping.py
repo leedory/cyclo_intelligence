@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
@@ -36,6 +37,49 @@ class StateSource:
     kind: str
     group: str | None
     index: int
+
+
+def missing_contract_inputs(
+    robot: Any,
+    camera_sources: Iterable[str],
+    state_sources: Iterable[StateSource],
+) -> list[str]:
+    """Return only observations consumed by the loaded policy that are not ready."""
+    sources = tuple(state_sources)
+    missing = [
+        f"camera:{name}" for name in camera_sources if not robot.is_image_ready(name)
+    ]
+    joint_groups = dict.fromkeys(
+        source.group for source in sources if source.kind == "joint" and source.group
+    )
+    missing.extend(
+        f"joint:{name}" for name in joint_groups if not robot.is_joint_ready(name)
+    )
+    if any(source.kind == "odom" for source in sources) and not robot.is_sensor_ready("odom"):
+        missing.append("sensor:odom")
+    return missing
+
+
+def wait_for_contract_inputs(
+    robot: Any,
+    camera_sources: Iterable[str],
+    state_sources: Iterable[StateSource],
+    *,
+    timeout: float,
+) -> bool:
+    """Wait for selected contract inputs instead of the complete robot profile."""
+    cameras = tuple(camera_sources)
+    sources = tuple(state_sources)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not missing_contract_inputs(robot, cameras, sources):
+            return True
+        time.sleep(0.1)
+    logger.warning(
+        "Timeout waiting for contracted inputs. Missing: %s",
+        missing_contract_inputs(robot, cameras, sources),
+    )
+    return False
 
 
 class IoMappingMixin:
@@ -69,7 +113,12 @@ class IoMappingMixin:
             self._policy_contract.inactive_actions,
         )
 
-        if not self._robot.wait_for_ready(timeout=10.0):
+        if not wait_for_contract_inputs(
+            self._robot,
+            self._cameras,
+            self._state_sources,
+            timeout=10.0,
+        ):
             raise RuntimeError(f"robot sensors were not ready for robot_type={robot_type}")
         logger.info(
             "Robot ready: cameras=%s state=%s action_groups=%s",

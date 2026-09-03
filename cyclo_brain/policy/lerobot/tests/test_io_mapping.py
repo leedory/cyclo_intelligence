@@ -63,8 +63,14 @@ class IoMappingTest(unittest.TestCase):
                 }
                 self._action_groups = {"arm": {"joint_names": ["joint_a"]}}
 
-            def wait_for_ready(self, timeout):
-                return True
+            def is_image_ready(self, name):
+                return name == "cam_left_head"
+
+            def is_joint_ready(self, name):
+                return name == "follower_arm"
+
+            def is_sensor_ready(self, name):
+                return False
 
         contract = PolicyContract(
             task_id="task",
@@ -94,6 +100,35 @@ class IoMappingTest(unittest.TestCase):
 
         self.assertEqual(FakeRobotClient.requested, ("cam_left_head",))
         self.assertEqual(engine._robot.camera_names, ["cam_left_head"])
+
+    def test_contract_readiness_ignores_unselected_joint_groups_and_sensors(self):
+        class FakeRobot:
+            def is_image_ready(self, name):
+                return name == "cam_left_head"
+
+            def is_joint_ready(self, name):
+                return name == "follower_arm_right"
+
+            def is_sensor_ready(self, name):
+                return False
+
+        sources = [
+            io_mapping.StateSource("arm_r_joint1", "joint", "follower_arm_right", 0),
+            io_mapping.StateSource("head_joint1", "joint", "follower_head", 0),
+        ]
+        missing = io_mapping.missing_contract_inputs(
+            FakeRobot(), ["cam_left_head"], sources
+        )
+
+        self.assertEqual(missing, ["joint:follower_head"])
+        self.assertNotIn("joint:follower_arm_left", missing)
+        self.assertNotIn("sensor:odom", missing)
+
+        mobile_sources = [io_mapping.StateSource("linear_x", "odom", None, 0)]
+        self.assertEqual(
+            io_mapping.missing_contract_inputs(FakeRobot(), [], mobile_sources),
+            ["sensor:odom"],
+        )
 
     def test_camera_mapping_uses_exact_declared_source_and_key(self):
         cameras = (
