@@ -241,16 +241,32 @@ def _selected_cameras(recipe: dict[str, Any]) -> list[dict[str, Any]]:
     return [policy_io["cameras"][name] for name in policy_io["camera_inputs"]]
 
 
-def _validate_policy(recipe: dict[str, Any]) -> None:
+def _validate_policy(
+    recipe: dict[str, Any],
+    state_features: tuple[str, ...],
+    action_features: tuple[str, ...],
+) -> None:
     policy = _mapping(recipe.get("policy"), "policy")
-    if policy.get("type") != "act":
-        raise RecipeError("policy.type must be act")
+    policy_type = policy.get("type")
+    if policy_type not in {"act", "groot"}:
+        raise RecipeError("policy.type must be act or groot")
     if _positive_int(policy.get("n_obs_steps"), "policy.n_obs_steps") != 1:
-        raise RecipeError("this ACT implementation supports policy.n_obs_steps=1 only")
+        raise RecipeError("SG2 policy recipes support policy.n_obs_steps=1 only")
     chunk_size = _positive_int(policy.get("chunk_size"), "policy.chunk_size")
     action_steps = _positive_int(policy.get("n_action_steps"), "policy.n_action_steps")
     if action_steps > chunk_size:
         raise RecipeError("policy.n_action_steps must not exceed policy.chunk_size")
+    normalization = _mapping(policy.get("normalization"), "policy.normalization")
+    if set(normalization) != {"VISUAL", "STATE", "ACTION"}:
+        raise RecipeError("policy.normalization must define VISUAL, STATE, and ACTION")
+    invalid = {key: value for key, value in normalization.items() if value not in ALLOWED_NORMALIZATION}
+    if invalid:
+        raise RecipeError(f"unsupported normalization modes: {invalid}")
+
+    if policy_type == "groot":
+        _validate_groot_policy(policy, state_features, action_features)
+        return
+
     dim_model = _positive_int(policy.get("dim_model"), "policy.dim_model")
     n_heads = _positive_int(policy.get("n_heads"), "policy.n_heads")
     if dim_model % n_heads:
@@ -270,12 +286,56 @@ def _validate_policy(recipe: dict[str, Any]) -> None:
         _finite_number(temporal, "policy.temporal_ensemble_coeff", minimum=0.0)
         if action_steps != 1:
             raise RecipeError("temporal ensembling requires policy.n_action_steps=1")
-    normalization = _mapping(policy.get("normalization"), "policy.normalization")
-    if set(normalization) != {"VISUAL", "STATE", "ACTION"}:
-        raise RecipeError("policy.normalization must define VISUAL, STATE, and ACTION")
-    invalid = {key: value for key, value in normalization.items() if value not in ALLOWED_NORMALIZATION}
-    if invalid:
-        raise RecipeError(f"unsupported normalization modes: {invalid}")
+
+
+def _validate_groot_policy(
+    policy: dict[str, Any],
+    state_features: tuple[str, ...],
+    action_features: tuple[str, ...],
+) -> None:
+    for field in ("max_state_dim", "max_action_dim"):
+        _positive_int(policy.get(field), f"policy.{field}")
+    if policy["max_state_dim"] < len(state_features):
+        raise RecipeError("policy.max_state_dim must cover the selected state feature count")
+    if policy["max_action_dim"] < len(action_features):
+        raise RecipeError("policy.max_action_dim must cover the selected action feature count")
+
+    for field in ("base_model_path", "action_decode_transform", "embodiment_tag"):
+        value = policy.get(field)
+        if value is not None and (not isinstance(value, str) or not value):
+            raise RecipeError(f"policy.{field} must be null or a non-empty string")
+
+    for field in (
+        "tune_llm",
+        "tune_visual",
+        "tune_projector",
+        "tune_diffusion_model",
+        "tune_vlln",
+        "use_flash_attention",
+        "use_relative_actions",
+        "use_bf16",
+        "model_params_fp32",
+        "inference_amp",
+        "push_to_hub",
+    ):
+        if not isinstance(policy.get(field), bool):
+            raise RecipeError(f"policy.{field} must be boolean")
+    _positive_int(policy.get("tune_top_llm_layers"), "policy.tune_top_llm_layers", allow_zero=True)
+    if policy.get("num_inference_timesteps") is not None:
+        _positive_int(policy.get("num_inference_timesteps"), "policy.num_inference_timesteps")
+    for field in ("rtc_ramp_rate", "optimizer_lr", "optimizer_weight_decay", "warmup_ratio"):
+        value = policy.get(field)
+        if value is not None:
+            _finite_number(value, f"policy.{field}", minimum=0.0)
+    betas = _list(policy.get("optimizer_betas"), "policy.optimizer_betas")
+    if len(betas) != 2:
+        raise RecipeError("policy.optimizer_betas must contain two values")
+    for index, beta in enumerate(betas):
+        number = _finite_number(beta, f"policy.optimizer_betas[{index}]", minimum=0.0)
+        if number >= 1.0:
+            raise RecipeError(f"policy.optimizer_betas[{index}] must be < 1")
+    _finite_number(policy.get("optimizer_eps"), "policy.optimizer_eps", minimum=0.0)
+    _string_list(policy.get("relative_exclude_joints", []), "policy.relative_exclude_joints", allow_empty=True)
 
 
 def _validate_optimization(recipe: dict[str, Any]) -> None:
@@ -494,7 +554,7 @@ def resolve_recipe(
         _mapping(recipe.get("training"), "training")["output_dir"] = output_dir
 
     state_features, action_features, camera_inputs = _validate_policy_io(recipe)
-    _validate_policy(recipe)
+    _validate_policy(recipe, state_features, action_features)
     _validate_optimization(recipe)
     _validate_training(recipe)
     _validate_simulation(recipe)
@@ -543,49 +603,16 @@ def _flag(name: str, value: Any) -> str:
     return f"--{name}={_cli_value(value)}"
 
 
-def build_lerobot_args(resolved: ResolvedRecipe) -> list[str]:
+def _common_lerobot_args(
+    resolved: ResolvedRecipe,
+    input_features: dict[str, Any],
+) -> list[str]:
     recipe = resolved.payload
     dataset = recipe["dataset"]
-    policy = recipe["policy"]
-    optimizer = recipe["optimizer"]
-    scheduler = recipe["scheduler"]
     training = recipe["training"]
     image_transforms = _mapping(dataset.get("image_transforms"), "dataset.image_transforms")
-    input_features = {
-        "observation.state": {"type": "STATE", "shape": [len(resolved.state_features)]},
-        **{
-            camera["key"]: {
-                "type": "VISUAL",
-                "shape": [3, camera["height"], camera["width"]],
-            }
-            for camera in _selected_cameras(recipe)
-        },
-    }
-
     args = [
-        _flag("policy.type", "act"),
-        _flag("policy.n_obs_steps", policy["n_obs_steps"]),
         _flag("policy.input_features", input_features),
-        _flag("policy.chunk_size", policy["chunk_size"]),
-        _flag("policy.n_action_steps", policy["n_action_steps"]),
-        _flag("policy.normalization_mapping", policy["normalization"]),
-        _flag("policy.vision_backbone", policy["vision_backbone"]),
-        _flag("policy.replace_final_stride_with_dilation", policy["replace_final_stride_with_dilation"]),
-        _flag("policy.pre_norm", policy["pre_norm"]),
-        _flag("policy.dim_model", policy["dim_model"]),
-        _flag("policy.n_heads", policy["n_heads"]),
-        _flag("policy.dim_feedforward", policy["dim_feedforward"]),
-        _flag("policy.feedforward_activation", policy["feedforward_activation"]),
-        _flag("policy.n_encoder_layers", policy["n_encoder_layers"]),
-        _flag("policy.n_decoder_layers", policy["n_decoder_layers"]),
-        _flag("policy.use_vae", policy["use_vae"]),
-        _flag("policy.latent_dim", policy["latent_dim"]),
-        _flag("policy.n_vae_encoder_layers", policy["n_vae_encoder_layers"]),
-        _flag("policy.dropout", policy["dropout"]),
-        _flag("policy.kl_weight", policy["kl_weight"]),
-        _flag("policy.device", policy["device"]),
-        _flag("policy.use_amp", policy["inference_amp"]),
-        _flag("policy.push_to_hub", policy["push_to_hub"]),
         _flag("dataset.repo_id", dataset["repo_id"]),
         _flag("dataset.root", dataset["root"]),
         _flag("dataset.eval_split", dataset["eval_split"]),
@@ -616,62 +643,173 @@ def build_lerobot_args(resolved: ResolvedRecipe) -> list[str]:
         _flag("wandb.enable", recipe["wandb"]["enable"]),
         _flag("wandb.project", recipe["wandb"]["project"]),
     ]
+    if dataset.get("episodes") is not None:
+        args.append(_flag("dataset.episodes", dataset["episodes"]))
+    if training["resume"]:
+        args.extend([_flag("config_path", training["resume_config"])])
+    return args
+
+
+def _optimizer_args(recipe: dict[str, Any]) -> list[str]:
+    policy = recipe["policy"]
+    optimizer = recipe["optimizer"]
+    scheduler = recipe["scheduler"]
+    if optimizer["mode"] == "policy_preset":
+        if policy["type"] == "groot":
+            return [_flag("use_policy_training_preset", True)]
+        preset = optimizer["policy_preset"]
+        return [
+            _flag("use_policy_training_preset", True),
+            _flag("policy.optimizer_lr", preset["lr"]),
+            _flag("policy.optimizer_weight_decay", preset["weight_decay"]),
+            _flag("policy.optimizer_lr_backbone", preset["lr_backbone"]),
+        ]
+
+    custom = optimizer["custom"]
+    args = [
+        _flag("use_policy_training_preset", False),
+        _flag("optimizer.type", custom["type"]),
+        _flag("optimizer.lr", custom["lr"]),
+        _flag("optimizer.weight_decay", custom["weight_decay"]),
+        _flag("optimizer.grad_clip_norm", custom["grad_clip_norm"]),
+    ]
+    if custom["type"] in {"adam", "adamw"}:
+        args.extend(
+            [
+                _flag("optimizer.betas", custom["betas"]),
+                _flag("optimizer.eps", custom["eps"]),
+            ]
+        )
+    if custom["type"] == "sgd":
+        args.extend(
+            [
+                _flag("optimizer.momentum", custom.get("momentum", 0.0)),
+                _flag("optimizer.dampening", custom.get("dampening", 0.0)),
+                _flag("optimizer.nesterov", custom.get("nesterov", False)),
+            ]
+        )
+    scheduler_type = scheduler["type"]
+    args.append(_flag("scheduler.type", scheduler_type))
+    args.append(_flag("scheduler.num_warmup_steps", scheduler["num_warmup_steps"]))
+    if scheduler_type == "cosine_decay_with_warmup":
+        for field in ("num_decay_steps", "peak_lr", "decay_lr"):
+            args.append(_flag(f"scheduler.{field}", scheduler[field]))
+    elif scheduler_type == "diffuser":
+        args.append(_flag("scheduler.name", scheduler["name"]))
+    return args
+
+
+def _act_policy_args(policy: dict[str, Any]) -> list[str]:
+    args = [
+        _flag("policy.type", "act"),
+        _flag("policy.n_obs_steps", policy["n_obs_steps"]),
+        _flag("policy.chunk_size", policy["chunk_size"]),
+        _flag("policy.n_action_steps", policy["n_action_steps"]),
+        _flag("policy.normalization_mapping", policy["normalization"]),
+        _flag("policy.vision_backbone", policy["vision_backbone"]),
+        _flag("policy.replace_final_stride_with_dilation", policy["replace_final_stride_with_dilation"]),
+        _flag("policy.pre_norm", policy["pre_norm"]),
+        _flag("policy.dim_model", policy["dim_model"]),
+        _flag("policy.n_heads", policy["n_heads"]),
+        _flag("policy.dim_feedforward", policy["dim_feedforward"]),
+        _flag("policy.feedforward_activation", policy["feedforward_activation"]),
+        _flag("policy.n_encoder_layers", policy["n_encoder_layers"]),
+        _flag("policy.n_decoder_layers", policy["n_decoder_layers"]),
+        _flag("policy.use_vae", policy["use_vae"]),
+        _flag("policy.latent_dim", policy["latent_dim"]),
+        _flag("policy.n_vae_encoder_layers", policy["n_vae_encoder_layers"]),
+        _flag("policy.dropout", policy["dropout"]),
+        _flag("policy.kl_weight", policy["kl_weight"]),
+        _flag("policy.device", policy["device"]),
+        _flag("policy.use_amp", policy["inference_amp"]),
+        _flag("policy.push_to_hub", policy["push_to_hub"]),
+    ]
     if policy.get("pretrained_backbone_weights") is not None:
         args.append(_flag("policy.pretrained_backbone_weights", policy["pretrained_backbone_weights"]))
     if policy.get("temporal_ensemble_coeff") is not None:
         args.append(_flag("policy.temporal_ensemble_coeff", policy["temporal_ensemble_coeff"]))
     if policy.get("repo_id"):
         args.append(_flag("policy.repo_id", policy["repo_id"]))
-    if dataset.get("episodes") is not None:
-        args.append(_flag("dataset.episodes", dataset["episodes"]))
-    if training["resume"]:
-        args.extend([_flag("config_path", training["resume_config"])])
+    return args
 
-    if optimizer["mode"] == "policy_preset":
-        preset = optimizer["policy_preset"]
-        args.extend(
-            [
-                _flag("use_policy_training_preset", True),
-                _flag("policy.optimizer_lr", preset["lr"]),
-                _flag("policy.optimizer_weight_decay", preset["weight_decay"]),
-                _flag("policy.optimizer_lr_backbone", preset["lr_backbone"]),
-            ]
-        )
+
+def _groot_policy_args(
+    policy: dict[str, Any],
+    action_features: tuple[str, ...],
+    training: dict[str, Any],
+    wandb: dict[str, Any],
+) -> list[str]:
+    output_features = {
+        "action": {"type": "ACTION", "shape": [len(action_features)]},
+    }
+    args = [
+        _flag("policy.type", "groot"),
+        _flag("policy.n_obs_steps", policy["n_obs_steps"]),
+        _flag("policy.output_features", output_features),
+        _flag("policy.chunk_size", policy["chunk_size"]),
+        _flag("policy.n_action_steps", policy["n_action_steps"]),
+        _flag("policy.max_state_dim", policy["max_state_dim"]),
+        _flag("policy.max_action_dim", policy["max_action_dim"]),
+        _flag("policy.normalization_mapping", policy["normalization"]),
+        _flag("policy.device", policy["device"]),
+        _flag("policy.use_amp", policy["inference_amp"]),
+        _flag("policy.embodiment_tag", policy["embodiment_tag"]),
+        _flag("policy.action_decode_transform", policy["action_decode_transform"]),
+        _flag("policy.tune_llm", policy["tune_llm"]),
+        _flag("policy.tune_visual", policy["tune_visual"]),
+        _flag("policy.tune_projector", policy["tune_projector"]),
+        _flag("policy.tune_diffusion_model", policy["tune_diffusion_model"]),
+        _flag("policy.tune_vlln", policy["tune_vlln"]),
+        _flag("policy.tune_top_llm_layers", policy["tune_top_llm_layers"]),
+        _flag("policy.use_flash_attention", policy["use_flash_attention"]),
+        _flag("policy.use_relative_actions", policy["use_relative_actions"]),
+        _flag("policy.relative_exclude_joints", policy["relative_exclude_joints"]),
+        _flag("policy.optimizer_lr", policy["optimizer_lr"]),
+        _flag("policy.optimizer_betas", policy["optimizer_betas"]),
+        _flag("policy.optimizer_eps", policy["optimizer_eps"]),
+        _flag("policy.optimizer_weight_decay", policy["optimizer_weight_decay"]),
+        _flag("policy.warmup_ratio", policy["warmup_ratio"]),
+        _flag("policy.use_bf16", policy["use_bf16"]),
+        _flag("policy.model_params_fp32", policy["model_params_fp32"]),
+        _flag("policy.max_steps", training["steps"]),
+        _flag("policy.batch_size", training["batch_size"]),
+        _flag("policy.dataloader_num_workers", training["num_workers"]),
+        _flag("policy.save_steps", training["save_freq"]),
+        _flag("policy.output_dir", training["output_dir"]),
+        _flag("policy.report_to", "wandb" if wandb["enable"] else "none"),
+        _flag("policy.resume", training["resume"]),
+        _flag("policy.push_to_hub", policy["push_to_hub"]),
+    ]
+    for field in ("base_model_path", "num_inference_timesteps", "rtc_ramp_rate"):
+        if policy.get(field) is not None:
+            args.append(_flag(f"policy.{field}", policy[field]))
+    if policy.get("repo_id"):
+        args.append(_flag("policy.repo_id", policy["repo_id"]))
+    return args
+
+
+def build_lerobot_args(resolved: ResolvedRecipe) -> list[str]:
+    recipe = resolved.payload
+    policy = recipe["policy"]
+    input_features = {
+        "observation.state": {"type": "STATE", "shape": [len(resolved.state_features)]},
+        **{
+            camera["key"]: {
+                "type": "VISUAL",
+                "shape": [3, camera["height"], camera["width"]],
+            }
+            for camera in _selected_cameras(recipe)
+        },
+    }
+
+    if policy["type"] == "act":
+        args = _act_policy_args(policy)
+    elif policy["type"] == "groot":
+        args = _groot_policy_args(policy, resolved.action_features, recipe["training"], recipe["wandb"])
     else:
-        custom = optimizer["custom"]
-        args.extend(
-            [
-                _flag("use_policy_training_preset", False),
-                _flag("optimizer.type", custom["type"]),
-                _flag("optimizer.lr", custom["lr"]),
-                _flag("optimizer.weight_decay", custom["weight_decay"]),
-                _flag("optimizer.grad_clip_norm", custom["grad_clip_norm"]),
-            ]
-        )
-        if custom["type"] in {"adam", "adamw"}:
-            args.extend(
-                [
-                    _flag("optimizer.betas", custom["betas"]),
-                    _flag("optimizer.eps", custom["eps"]),
-                ]
-            )
-        if custom["type"] == "sgd":
-            args.extend(
-                [
-                    _flag("optimizer.momentum", custom.get("momentum", 0.0)),
-                    _flag("optimizer.dampening", custom.get("dampening", 0.0)),
-                    _flag("optimizer.nesterov", custom.get("nesterov", False)),
-                ]
-            )
-        scheduler_type = scheduler["type"]
-        args.append(_flag("scheduler.type", scheduler_type))
-        args.append(_flag("scheduler.num_warmup_steps", scheduler["num_warmup_steps"]))
-        if scheduler_type == "cosine_decay_with_warmup":
-            for field in ("num_decay_steps", "peak_lr", "decay_lr"):
-                args.append(_flag(f"scheduler.{field}", scheduler[field]))
-        elif scheduler_type == "diffuser":
-            args.append(_flag("scheduler.name", scheduler["name"]))
-
+        raise RecipeError(f"unsupported policy.type: {policy['type']}")
+    args.extend(_common_lerobot_args(resolved, input_features))
+    args.extend(_optimizer_args(recipe))
     return args
 
 

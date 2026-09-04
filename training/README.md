@@ -1,13 +1,18 @@
-# SG2 ACT training recipes
+# SG2 policy training recipes
 
 The task recipes are the single place to choose the dataset, exact robot I/O,
-camera layout, ACT architecture, optimizer, scheduler, state noise, and run
-parameters.
+camera layout, policy architecture, optimizer, scheduler, state noise, and run
+parameters. ACT and GR00T recipes use the same policy I/O and deployment
+contract.
 
 ```bash
 python3 tools/training/act_recipe.py validate training/task_000525/act.yaml
 python3 tools/training/act_recipe.py plan training/task_000525/act.yaml
 python3 tools/training/act_recipe.py run training/task_000525/act.yaml
+
+python3 tools/training/groot_recipe.py validate training/task_000525/groot_orange_01_02_headcam_recommended.yaml
+python3 tools/training/groot_recipe.py plan training/task_000525/groot_orange_01_02_headcam_recommended.yaml
+python3 tools/training/groot_recipe.py run training/task_000525/groot_orange_01_02_headcam_recommended.yaml
 ```
 
 Dataset and output paths are container paths below `/workspace`; on the host
@@ -33,7 +38,7 @@ camera_inputs: [head, left_wrist]
 camera_inputs: [left_wrist, right_wrist]
 ```
 
-The selected order is written into the ACT `policy.input_features` contract and
+The selected order is written into the LeRobot `policy.input_features` contract and
 only those cameras are written to `cyclo_policy.yaml`. A canonical dataset may
 still contain any of the other cameras declared in the catalog; they are not
 model inputs. At inference, the checkpoint manifest makes RobotClient subscribe
@@ -108,6 +113,17 @@ and no scheduler; only fields under `optimizer.policy_preset` are active. Set
 `optimizer.mode: custom` to activate `optimizer.custom` (including clipping,
 betas, and epsilon) and choose a supported scheduler. This mirrors LeRobot's
 constraint that an explicit optimizer also requires a scheduler.
+
+For GR00T, set `policy.type: groot`. The same `policy_io.state_components`,
+`policy_io.action_components`, `inactive_actions`, and `camera_inputs` fields
+control the trained contract. The launcher also writes explicit
+`policy.output_features` so the checkpoint action shape matches
+`cyclo_policy.yaml` during inference. GR00T-specific fine-tuning knobs live in
+the `policy` section, including `base_model_path`, `embodiment_tag`,
+`tune_projector`, `tune_diffusion_model`, `use_relative_actions`,
+`optimizer_lr`, `warmup_ratio`, and BF16/model precision settings. Use
+`tools/training/groot_recipe.py` to default execution to the `groot_server`
+container, or pass `--container` explicitly.
 
 `training.mixed_precision` sets Accelerate's supported `no`, `fp16`, or `bf16`
 mode through `ACCELERATE_MIXED_PRECISION`; it is not an invented LeRobot CLI

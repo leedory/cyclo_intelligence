@@ -294,6 +294,33 @@ class ActRecipeTest(unittest.TestCase):
         self.assertIn("os.chmod(temporary, 0o644)", command[-2])
         self.assertEqual(run.call_args.kwargs["input"], "task: smoke\n")
 
+    def test_groot_recipe_builds_selected_io_and_container_command(self):
+        resolved = act_recipe.resolve_recipe(
+            REPO_ROOT / "training/task_000525/groot_orange_01_02_headcam_recommended.yaml",
+            validate_data=False,
+        )
+
+        self.assertEqual(resolved.payload["policy"]["type"], "groot")
+        self.assertEqual(len(resolved.state_features), 18)
+        self.assertEqual(resolved.state_features, resolved.action_features)
+        args = act_recipe.build_lerobot_args(resolved)
+        self.assertIn("--policy.type=groot", args)
+        self.assertIn("--policy.base_model_path=nvidia/GR00T-N1.7-3B", args)
+        feature_arg = next(arg for arg in args if arg.startswith("--policy.input_features="))
+        features = json.loads(feature_arg.split("=", 1)[1])
+        self.assertEqual(set(features), {"observation.state", "observation.images.rgb.cam_left_head"})
+        output_arg = next(arg for arg in args if arg.startswith("--policy.output_features="))
+        output_features = json.loads(output_arg.split("=", 1)[1])
+        self.assertEqual(output_features["action"]["shape"], [18])
+
+        command = act_recipe.build_docker_command(resolved, "groot_server")
+        self.assertIn("groot_server", command)
+        self.assertIn("lerobot-train", command)
+        manifest = act_recipe.policy_manifest(resolved)
+        self.assertEqual(set(manifest["cameras"]), {"cam_left_head"})
+        self.assertEqual(manifest["action"]["inactive"], {"lift": "hold_current", "mobile": "hold_current"})
+
+
 
 if __name__ == "__main__":
     unittest.main()

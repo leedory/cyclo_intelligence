@@ -1,0 +1,160 @@
+task:
+  id: task_000525
+  robot_type: ffw_sg2_rev1
+  instruction: Pick the orange coffee can out of the cabinet and carry it to the home pose.
+
+policy_io:
+  fps: 15
+  components:
+    arm_left: [arm_l_joint1, arm_l_joint2, arm_l_joint3, arm_l_joint4, arm_l_joint5, arm_l_joint6, arm_l_joint7, gripper_l_joint1]
+    arm_right: [arm_r_joint1, arm_r_joint2, arm_r_joint3, arm_r_joint4, arm_r_joint5, arm_r_joint6, arm_r_joint7, gripper_r_joint1]
+    head: [head_joint1, head_joint2]
+    lift: [lift_joint]
+    mobile: [linear_x, linear_y, angular_z]
+  state_components: [arm_left, arm_right, head, mobile]
+  action_components: [arm_left, arm_right, head, mobile]
+  inactive_actions:
+    lift: hold_current
+  # Change only this list for camera-ablation experiments.
+  camera_inputs: [head]
+  cameras:
+    head:
+      key: observation.images.rgb.cam_left_head
+      source: cam_left_head
+      width: 672
+      height: 376
+      orientation: landscape
+      upright: true
+    left_wrist:
+      key: observation.images.rgb.cam_left_wrist
+      source: cam_left_wrist
+      width: 480
+      height: 640
+      orientation: portrait
+      upright: true
+    right_wrist:
+      key: observation.images.rgb.cam_right_wrist
+      source: cam_right_wrist
+      width: 480
+      height: 640
+      orientation: portrait
+      upright: true
+
+dataset:
+  repo_id: robotis/task_000525_orange_01_02_augmented_v30
+  root: /workspace/dataset/robotis/task_000525_orange_01_02_augmented_v30
+  episodes: null
+  eval_split: 0.0
+  use_imagenet_stats: true
+  video_backend: torchcodec
+  return_uint8: false
+  image_transforms:
+    enable: true
+    max_num_transforms: 2
+    random_order: false
+    transforms:
+      brightness:
+        weight: 1
+        type: ColorJitter
+        kwargs:
+          brightness: [0.95, 1.05]
+      affine:
+        weight: 1
+        type: RandomAffine
+        kwargs:
+          degrees: [-2, 2]
+          translate: [0.01, 0.01]
+
+policy:
+  type: groot
+  n_obs_steps: 1
+  chunk_size: 40
+  n_action_steps: 40
+  max_state_dim: 132
+  max_action_dim: 132
+  normalization:
+    VISUAL: IDENTITY
+    STATE: IDENTITY
+    ACTION: IDENTITY
+  base_model_path: nvidia/GR00T-N1.7-3B
+  embodiment_tag: new_embodiment
+  action_decode_transform: none
+  tune_llm: false
+  tune_visual: false
+  tune_projector: true
+  tune_diffusion_model: true
+  tune_vlln: true
+  tune_top_llm_layers: 0
+  num_inference_timesteps: null
+  rtc_ramp_rate: null
+  use_flash_attention: false
+  use_relative_actions: false
+  relative_exclude_joints: []
+  optimizer_lr: 0.0001
+  optimizer_betas: [0.9, 0.999]
+  optimizer_eps: 0.00000001
+  optimizer_weight_decay: 0.00001
+  warmup_ratio: 0.05
+  use_bf16: true
+  model_params_fp32: true
+  device: cuda
+  inference_amp: false
+  push_to_hub: false
+  repo_id: null
+
+optimizer:
+  mode: policy_preset
+  # GR00T uses policy.optimizer_* fields above through its LeRobot preset.
+  policy_preset:
+    lr: 0.0001
+    lr_backbone: 0.0001
+    weight_decay: 0.00001
+  custom:
+    type: adamw
+    lr: 0.0001
+    weight_decay: 0.00001
+    grad_clip_norm: 1.0
+    betas: [0.9, 0.999]
+    eps: 0.00000001
+
+scheduler:
+  # Ignored when optimizer.mode=policy_preset; GR00T supplies its cosine preset.
+  type: none
+  num_warmup_steps: 0
+
+state_noise:
+  enabled: false
+  space: raw
+  distribution: gaussian
+  std: null
+  std_by_feature: {}
+
+training:
+  job_name: task_000525_orange_01_02_headcam_base_groot_recommended
+  output_dir: /workspace/model/groot/task_000525_orange_01_02_headcam_base_groot_recommended
+  steps: 10000
+  batch_size: 2
+  num_workers: 4
+  prefetch_factor: 4
+  persistent_workers: true
+  seed: 1000
+  cudnn_deterministic: false
+  mixed_precision: bf16
+  tolerance_s: 0.0001
+  save_checkpoint: true
+  save_freq: 1000
+  log_freq: 10
+  env_eval_freq: 0
+  eval_steps: 0
+  max_eval_samples: 0
+  resume: false
+  resume_config: null
+
+wandb:
+  enable: false
+  project: cyclo-sg2-groot
+
+simulation:
+  environment: Cyclo-Real-Showroom-Task000525-FFW-SG2-v0
+  randomized_environment: Cyclo-Real-Showroom-Task000525-Random-FFW-SG2-v0
+  default_reset: deterministic
