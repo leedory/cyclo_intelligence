@@ -2532,6 +2532,13 @@ class RosbagToLerobotConverterBase:
             or "geometry_msgs/msg/Twist" in topic_type
         )
 
+    @staticmethod
+    def _velocity_source_names(topic_type: str) -> List[str]:
+        """Return names for the unfiltered velocity vector emitted by decoders."""
+        if "Odometry" in topic_type or "Twist" in topic_type:
+            return ["linear_x", "linear_y", "angular_z"]
+        return []
+
     @classmethod
     def _extract_raw_cdr_positions(
         cls, topic_type: str, data: bytes
@@ -2656,13 +2663,10 @@ class RosbagToLerobotConverterBase:
 
             fallback_names: List[str] = []
             if "Odometry" in topic_type or "Twist" in topic_type:
-                group_key = self._get_topic_group_key(topic, role)
-                fallback_names = list(
-                    self._joint_order_by_group.get(
-                        group_key,
-                        ["linear_x", "linear_y", "angular_z"],
-                    )
-                )
+                # The decoder always emits the full physical 3-vector. Keep
+                # source names independent of a selected_joints projection so
+                # linear_y cannot be mistaken for vector index 0 (linear_x).
+                fallback_names = self._velocity_source_names(topic_type)
 
             topic_plan[topic] = (role, topic_type, fallback_names)
 
@@ -2900,11 +2904,7 @@ class RosbagToLerobotConverterBase:
                     if "Odometry" in topic_type:
                         positions = self._extract_velocity_from_odometry(msg)
                         if need_joint_names:
-                            group_key = self._get_topic_group_key(topic, "state")
-                            if group_key in self._joint_order_by_group:
-                                joint_names = self._joint_order_by_group[group_key]
-                            else:
-                                joint_names = ["linear_x", "linear_y", "angular_z"]
+                            joint_names = self._velocity_source_names(topic_type)
                     elif hasattr(msg, "position") and msg.position:
                         positions = np.asarray(msg.position, dtype=np.float32)
                         if need_joint_names:
@@ -2942,11 +2942,7 @@ class RosbagToLerobotConverterBase:
                     if "Twist" in topic_type:
                         positions = self._extract_velocity_from_twist(msg)
                         if need_joint_names:
-                            group_key = self._get_topic_group_key(topic, "action")
-                            if group_key in self._joint_order_by_group:
-                                joint_names = self._joint_order_by_group[group_key]
-                            else:
-                                joint_names = ["linear_x", "linear_y", "angular_z"]
+                            joint_names = self._velocity_source_names(topic_type)
                     else:
                         positions = self._extract_action_positions(msg)
                         if need_joint_names:

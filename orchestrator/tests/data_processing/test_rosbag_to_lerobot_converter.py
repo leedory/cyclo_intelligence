@@ -312,6 +312,58 @@ class TestRawCdrExtraction(unittest.TestCase):
         )
         self.assertEqual(names, [])
 
+    def test_selected_mobile_axis_raw_cdr_and_ros_projection_parity(self):
+        buf = bytearray(b"\x00\x01\x00\x00")
+        for value in [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]:
+            buf.extend(struct.pack("<d", value))
+
+        raw_positions, _ = RosbagToLerobotConverterBase._extract_raw_cdr_positions(
+            "geometry_msgs/msg/Twist",
+            bytes(buf),
+        )
+        ros_msg = types.SimpleNamespace(
+            linear=types.SimpleNamespace(x=1.0, y=2.0, z=3.0),
+            angular=types.SimpleNamespace(x=4.0, y=5.0, z=6.0),
+        )
+        ros_positions = RosbagToLerobotConverterBase._extract_velocity_from_twist(
+            None,
+            ros_msg
+        )
+        source_names = RosbagToLerobotConverterBase._velocity_source_names(
+            "geometry_msgs/msg/Twist"
+        )
+
+        np.testing.assert_allclose(raw_positions, ros_positions)
+        self.assertEqual(source_names, ["linear_x", "linear_y", "angular_z"])
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            converter = RosbagToLerobotConverterBase(
+                ConversionConfig(
+                    repo_id="test/mobile-axis",
+                    output_dir=Path(tmpdir),
+                )
+            )
+            converter._action_topic_key_map = {"/cmd_vel": "leader_mobile"}
+            for axis, expected in (
+                ("linear_x", 1.0),
+                ("linear_y", 2.0),
+                ("angular_z", 6.0),
+            ):
+                with self.subTest(axis=axis):
+                    converter._joint_order_by_group = {"leader_mobile": [axis]}
+                    raw_merged = converter._merge_action_messages(
+                        {"/cmd_vel": [(1.0, raw_positions)]},
+                        {"/cmd_vel": source_names},
+                    )
+                    ros_merged = converter._merge_action_messages(
+                        {"/cmd_vel": [(1.0, ros_positions)]},
+                        {"/cmd_vel": source_names},
+                    )
+
+                    self.assertEqual(converter._action_joint_names, [axis])
+                    np.testing.assert_allclose(raw_merged[0][1], [expected])
+                    np.testing.assert_allclose(ros_merged[0][1], [expected])
+
     def test_parse_raw_cdr_joint_state(self):
         buf = bytearray(b"\x00\x01\x00\x00")
         self._write_header(buf)
