@@ -130,6 +130,24 @@ def test_simulator_launch_argv_is_fixed_and_allowlisted():
     ]
 
 
+def test_coffee_simulator_environments_are_headless_allowlisted():
+    expected = {
+        "task_000001": ("Cyclo-Real-Showroom-Task000001-FFW-SG2-v0", 17),
+        "task_000002": ("Cyclo-Real-Showroom-Task000002-FFW-SG2-v0", 19),
+    }
+    for task_id, (deterministic, action_dim) in expected.items():
+        configured = simulator.SIMULATION_ENVIRONMENTS[task_id]
+        assert configured["action_dim"] == action_dim
+        assert configured["profiles"]["deterministic"] == deterministic
+        assert configured["profiles"]["randomized_evaluation"] == (
+            deterministic.replace("-FFW-SG2-v0", "-Random-FFW-SG2-v0")
+        )
+        argv = simulator._launch_argv(task_id, "randomized_evaluation")
+        assert "--headless" in argv
+        assert "--enable_cameras" in argv
+        assert "--ui-session" in argv
+
+
 def test_simulator_exec_inspection_reports_running_and_safe_pid():
     client = SimpleNamespace(api=SimpleNamespace(
         exec_inspect=lambda exec_id: {"Running": exec_id == "running", "Pid": 84},

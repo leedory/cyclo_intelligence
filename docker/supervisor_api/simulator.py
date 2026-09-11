@@ -62,6 +62,22 @@ SIMULATION_ENVIRONMENTS: Dict[str, Dict[str, Any]] = {
             "randomized_evaluation": "Cyclo-Real-Showroom-Task000525-Random-FFW-SG2-v0",
         },
     },
+    "task_000001": {
+        "label": "Task 000001 — coffee transport down",
+        "action_dim": 17,
+        "profiles": {
+            "deterministic": "Cyclo-Real-Showroom-Task000001-FFW-SG2-v0",
+            "randomized_evaluation": "Cyclo-Real-Showroom-Task000001-Random-FFW-SG2-v0",
+        },
+    },
+    "task_000002": {
+        "label": "Task 000002 — coffee transport right",
+        "action_dim": 19,
+        "profiles": {
+            "deterministic": "Cyclo-Real-Showroom-Task000002-FFW-SG2-v0",
+            "randomized_evaluation": "Cyclo-Real-Showroom-Task000002-Random-FFW-SG2-v0",
+        },
+    },
 }
 
 _ACTIVE_STATES = {"starting", "ready", "resetting", "running", "stopping", "error"}
