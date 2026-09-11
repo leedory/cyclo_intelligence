@@ -28,7 +28,7 @@ import time
 import threading
 import logging
 from pathlib import Path
-from typing import Optional, Union
+from typing import Iterable, Optional, Union
 
 import numpy as np
 import cv2
@@ -178,6 +178,7 @@ class RobotClient:
         domain_id: Optional[int] = None,
         enable_command_publishers: bool = False,
         enable_preview_publisher: bool = False,
+        camera_names: Optional[Iterable[str]] = None,
     ):
         section = robot_schema.load_robot_section(robot_type)
         # Phase 4: yaml is VLA-semantic (observation.images / state +
@@ -185,6 +186,20 @@ class RobotClient:
         # the cameras / joint_groups / sensors shape RobotClient and the
         # downstream inference engines have always consumed.
         self._config = _build_runtime_config(section)
+        if camera_names is not None:
+            requested_cameras = tuple(camera_names)
+            if len(requested_cameras) != len(set(requested_cameras)):
+                raise ValueError(f"camera_names contains duplicates: {requested_cameras}")
+            configured_cameras = self._config.get("cameras", {})
+            missing_cameras = [name for name in requested_cameras if name not in configured_cameras]
+            if missing_cameras:
+                raise ValueError(
+                    "requested cameras are absent from the robot profile: "
+                    f"missing={missing_cameras}, configured={sorted(configured_cameras)}"
+                )
+            self._config["cameras"] = {
+                name: configured_cameras[name] for name in requested_cameras
+            }
 
         self._robot_type = robot_type
         self._sync_check = sync_check

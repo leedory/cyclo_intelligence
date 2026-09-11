@@ -106,26 +106,17 @@ class LeRobotEngine(
         self._robot: Optional[RobotClient] = None
         self._device: Optional[torch.device] = None
         self._loaded_model_path: Optional[str] = None
+        self._policy_contract = None
 
-        # Resolved after load: which cameras / joint groups feed which
-        # policy keys. ``_cameras`` maps RobotClient camera name → policy
-        # input key (``observation.images.<cam>``). ``_state_modalities``
-        # is the sorted list of follower joint groups whose positions are
-        # concatenated into ``observation.state``.
+        # Resolved from cyclo_policy.yaml after load. Camera sources and each
+        # scalar state feature retain the checkpoint's declared order.
         self._cameras: Dict[str, str] = {}
-        self._state_modalities: List[str] = []
+        self._camera_contracts: Dict[str, Any] = {}
+        self._state_sources: List[Any] = []
         self._action_keys: List[str] = []
-        self._has_mobile_state: bool = False
         # Cached robot_type for repeated LOAD requests before an explicit
         # UNLOAD. cleanup() must clear this together with the policy cache.
         self._loaded_robot_type: Optional[str] = None
-
-        # Resize targets for input cameras. The preprocessor's stored
-        # ImageProcessorStep handles normalization and CHW reorder; we
-        # only need to pre-resize each camera to the policy feature's
-        # expected size. If config doesn't expose a target shape for a
-        # camera, we leave that image at native resolution.
-        self._image_resize: Dict[str, tuple[int, int]] = {}
 
     # ------------------------------------------------------------------ #
     # InferenceEngine API
@@ -149,6 +140,12 @@ class LeRobotEngine(
             # a training-output root containing ``training_state/``
             # alongside (lerobot-train layout).
             model_path = self._resolve_model_dir(model_path)
+            contract = self._load_policy_contract(model_path)
+            if contract.robot_type != robot_type:
+                raise RuntimeError(
+                    f"checkpoint robot_type={contract.robot_type!r} does not match "
+                    f"requested robot_type={robot_type!r}"
+                )
 
             # Skip weights load when a second LOAD arrives before UNLOAD and
             # we're just reattaching the robot client for the same model.
@@ -173,9 +170,11 @@ class LeRobotEngine(
                 self._loaded_model_path = model_path
                 self._apply_policy_optimization(model_path, request)
 
+            self._validate_policy_contract(contract, self._policy)
+            self._policy_contract = contract
+
             self._init_robot(robot_type)
             self._loaded_robot_type = robot_type
-            self._image_resize = self._infer_image_resize(self._policy)
 
             return {
                 "success": True,
@@ -206,6 +205,12 @@ class LeRobotEngine(
 
             chunk = self._to_numpy_chunk(action)
             T, D = chunk.shape
+            expected_dim = len(self._policy_contract.action_features)
+            if D != expected_dim:
+                raise RuntimeError(
+                    f"Policy returned action dimension {D}, but cyclo_policy.yaml declares "
+                    f"{expected_dim} named actions"
+                )
             logger.info("Action chunk: T=%d, D=%d", T, D)
             return {
                 "success": True,
@@ -237,13 +242,13 @@ class LeRobotEngine(
         self._postprocessor = None
         self._device = None
         self._loaded_model_path = None
+        self._policy_contract = None
         self._loaded_robot_type = None
-        self._image_resize = {}
 
         self._cameras = {}
-        self._state_modalities = []
+        self._camera_contracts = {}
+        self._state_sources = []
         self._action_keys = []
-        self._has_mobile_state = False
 
         if had_policy:
             gc.collect()

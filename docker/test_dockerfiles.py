@@ -29,6 +29,16 @@ def test_main_compose_mounts_shared_s6_runner():
     ) in contents
 
 
+def test_workstation_compose_uses_isolated_s2r_namespaces():
+    contents = (REPO_ROOT / "docker" / "docker-compose.yml").read_text()
+
+    assert "name: ${CYCLO_COMPOSE_PROJECT_NAME:-cyclo_intelligence_s2r}" in contents
+    assert "container_name: ${CYCLO_MAIN_CONTAINER_NAME:-cyclo_intelligence_s2r}" in contents
+    assert "container_name: ${LEROBOT_CONTAINER_NAME:-lerobot_server_s2r}" in contents
+    assert "POLICY_BACKEND=${LEROBOT_RUNTIME_NAMESPACE:-lerobot_s2r}" in contents
+    assert "CYCLO_SUPERVISOR_API_CONTAINER_NAME=${CYCLO_MAIN_CONTAINER_NAME:-cyclo_intelligence_s2r}" in contents
+
+
 def test_interactive_bashrc_includes_simple_ros_zenoh_block():
     dockerfiles = (
         REPO_ROOT / "docker" / "Dockerfile.arm64",

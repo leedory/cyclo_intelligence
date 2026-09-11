@@ -61,6 +61,7 @@ _BACKENDS = app._BACKENDS
 _USER_SERVICES = app._USER_SERVICES
 navigation = sys.modules["supervisor_api.navigation"]
 navigation_grid_cache = sys.modules["supervisor_api.navigation_grid_cache"]
+simulator = sys.modules["supervisor_api.simulator"]
 _GROOT_REQUIRED_MOUNTS = app._REQUIRED_BACKEND_MOUNTS["groot"]
 _LEROBOT_REQUIRED_MOUNTS = app._REQUIRED_BACKEND_MOUNTS["lerobot"]
 
@@ -100,6 +101,277 @@ def test_navigation_routes_are_registered():
     assert "/navigation/start" in paths
     assert "/navigation/maps/pgm/save" in paths
     assert "/navigation/topics/ws" in paths
+
+
+def test_simulator_routes_are_registered():
+    paths = {route.path for route in app.app.routes if hasattr(route, "path")}
+
+    assert "/simulator/environments" in paths
+    assert "/simulator/status" in paths
+    assert "/simulator/resolve" in paths
+    assert "/simulator/start" in paths
+    assert "/simulator/reset" in paths
+    assert "/simulator/stop" in paths
+
+
+def test_simulator_launch_argv_is_fixed_and_allowlisted():
+    assert simulator._launch_argv("task_000458", "randomized_evaluation") == [
+        "/isaac-sim/python.sh",
+        "scripts/sim2real/bringup.py",
+        "--task",
+        "Cyclo-Real-Showroom-Task000458-Random-FFW-SG2-v0",
+        "--bridge",
+        "ffw_sg2",
+        "--headless",
+        "--enable_cameras",
+        "--ui-session",
+        "--session-status-file",
+        "/tmp/cyclo_lab_ui_session.json",
+    ]
+
+
+def test_coffee_simulator_environments_are_headless_allowlisted():
+    expected = {
+        "task_000001": ("Cyclo-Real-Showroom-Task000001-FFW-SG2-v0", 17),
+        "task_000002": ("Cyclo-Real-Showroom-Task000002-FFW-SG2-v0", 19),
+    }
+    for task_id, (deterministic, action_dim) in expected.items():
+        configured = simulator.SIMULATION_ENVIRONMENTS[task_id]
+        assert configured["action_dim"] == action_dim
+        assert configured["profiles"]["deterministic"] == deterministic
+        assert configured["profiles"]["randomized_evaluation"] == (
+            deterministic.replace("-FFW-SG2-v0", "-Random-FFW-SG2-v0")
+        )
+        argv = simulator._launch_argv(task_id, "randomized_evaluation")
+        assert "--headless" in argv
+        assert "--enable_cameras" in argv
+        assert "--ui-session" in argv
+
+
+def test_simulator_exec_inspection_reports_running_and_safe_pid():
+    client = SimpleNamespace(api=SimpleNamespace(
+        exec_inspect=lambda exec_id: {"Running": exec_id == "running", "Pid": 84},
+    ))
+
+    assert simulator._exec_is_running(client, "running") is True
+    assert simulator._exec_is_running(client, "stopped") is False
+    assert simulator._exec_pid(client, "running") == 84
+
+
+def test_simulator_training_gate_observes_s2r_and_standard_containers(monkeypatch):
+    requested = []
+
+    class FakeContainer:
+        status = "running"
+
+        def __init__(self, processes):
+            self.processes = processes
+
+        def reload(self):
+            pass
+
+        def top(self, ps_args):
+            assert ps_args == "-eo args"
+            return {"Processes": [[command] for command in self.processes]}
+
+    containers = {
+        "lerobot_server_s2r": FakeContainer(["python3 -m main_runtime"]),
+        "lerobot_server": FakeContainer(["python3 -m lerobot.scripts.lerobot_train"]),
+    }
+
+    def get_container(name):
+        requested.append(name)
+        return containers[name]
+
+    monkeypatch.setattr(
+        simulator,
+        "TRAINING_CONTAINERS",
+        ("lerobot_server_s2r", "lerobot_server"),
+    )
+    client = SimpleNamespace(containers=SimpleNamespace(get=get_container))
+
+    assert simulator._training_is_active(client) is True
+    assert requested == ["lerobot_server_s2r", "lerobot_server"]
+
+
+def test_simulator_start_request_rejects_environment_override():
+    import pytest
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        simulator.StartSimulationRequest(
+            policy_path="/workspace/model/lerobot/run",
+            environment="task_000458",
+        )
+
+
+def test_simulator_resolves_nearest_policy_contract(monkeypatch, tmp_path):
+    root = tmp_path / "lerobot"
+    selected = root / "run" / "checkpoints" / "040000" / "pretrained_model"
+    selected.mkdir(parents=True)
+    (root / "run" / "cyclo_policy.yaml").write_text(
+        """simulation:
+  environment: Cyclo-Real-Showroom-Task000458-FFW-SG2-v0
+  randomized_environment: Cyclo-Real-Showroom-Task000458-Random-FFW-SG2-v0
+  default_reset: randomized_evaluation
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(simulator, "POLICY_ROOT", root)
+
+    assert simulator._resolve_policy_contract(str(selected)) == (
+        "task_000458",
+        "randomized_evaluation",
+        str(selected),
+    )
+
+
+def test_simulator_rejects_manifest_gym_id_outside_catalog(monkeypatch, tmp_path):
+    import pytest
+    from fastapi import HTTPException
+
+    root = tmp_path / "lerobot"
+    selected = root / "run"
+    selected.mkdir(parents=True)
+    (selected / "cyclo_policy.yaml").write_text(
+        """simulation:
+  environment: Cyclo-Real-Showroom-Other-v0
+  default_reset: deterministic
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(simulator, "POLICY_ROOT", root)
+
+    with pytest.raises(HTTPException, match="unsupported simulation.environment"):
+        simulator._resolve_policy_contract(str(selected))
+
+
+def test_simulator_ready_requires_fresh_observation_and_camera(monkeypatch):
+    task = "Cyclo-Real-Showroom-Task000525-FFW-SG2-v0"
+    document = {
+        "state": "ready",
+        "task": task,
+        "pid": 42,
+        "observation_sequence": 1,
+        "camera_sequence": 0,
+    }
+    monkeypatch.setattr(simulator, "_read_status_document", lambda _container: document)
+    monkeypatch.setattr(simulator, "_pid_is_alive", lambda _container, _pid: True)
+    monkeypatch.setattr(simulator, "_exec_is_running", lambda _client, _exec_id: False)
+    monkeypatch.setattr(simulator, "_training_is_active", lambda _client: False)
+
+    status = simulator._public_status(SimpleNamespace(), SimpleNamespace())
+
+    assert status["state"] == "starting"
+    assert status["environment"] == "task_000525"
+    assert status["message"] == "Waiting for fresh state and camera samples"
+
+
+def test_simulator_surfaces_session_error(monkeypatch):
+    document = {"state": "error", "error": "Isaac renderer failed", "pid": 42}
+    monkeypatch.setattr(simulator, "_read_status_document", lambda _container: document)
+    monkeypatch.setattr(simulator, "_pid_is_alive", lambda _container, _pid: True)
+    monkeypatch.setattr(simulator, "_exec_is_running", lambda _client, _exec_id: True)
+    monkeypatch.setattr(simulator, "_training_is_active", lambda _client: False)
+
+    status = simulator._public_status(SimpleNamespace(), SimpleNamespace())
+
+    assert status["state"] == "error"
+    assert status["error"] == "Isaac renderer failed"
+    assert status["message"] == "Isaac renderer failed"
+
+
+def test_simulator_reset_publishes_only_fixed_ros_message(monkeypatch):
+    calls = []
+    fake_container = SimpleNamespace()
+    fake_client = SimpleNamespace()
+    monkeypatch.setattr(simulator, "_docker_client", lambda: fake_client)
+    monkeypatch.setattr(simulator, "_running_container", lambda _client, _name: fake_container)
+    monkeypatch.setattr(
+        simulator,
+        "_public_status",
+        lambda _client, _container: {
+            "state": "ready",
+            "reset_count": 2,
+            "observation_sequence": 10,
+            "camera_sequence": 10,
+        },
+    )
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(simulator.subprocess, "run", fake_run)
+    result = simulator.reset_simulation()
+
+    assert calls[0][0] == [
+        "ros2", "topic", "pub", "--once",
+        "/simulation/reset", "std_msgs/msg/Empty", "{}",
+    ]
+    assert result["state"] == "resetting"
+
+
+def test_simulator_stop_waits_for_pid_and_exec_before_clearing(monkeypatch):
+    commands = []
+
+    class FakeContainer:
+        def exec_run(self, argv):
+            commands.append(argv)
+            return SimpleNamespace(exit_code=0)
+
+    fake_container = FakeContainer()
+    fake_client = SimpleNamespace()
+    pid_alive = iter([True, True, False, False, False])
+    exec_running = iter([True, False, False])
+    monkeypatch.setattr(simulator, "_docker_client", lambda: fake_client)
+    monkeypatch.setattr(simulator, "_running_container", lambda _client, _name: fake_container)
+    monkeypatch.setattr(simulator, "_read_status_document", lambda _container: {"pid": 42})
+    monkeypatch.setattr(simulator, "_pid_is_alive", lambda _container, _pid: next(pid_alive))
+    monkeypatch.setattr(simulator, "_exec_is_running", lambda _client, _exec_id: next(exec_running))
+    monkeypatch.setattr(simulator, "_training_is_active", lambda _client: False)
+    monkeypatch.setattr(simulator.time, "sleep", lambda _seconds: None)
+    simulator._SESSION.exec_id = "exec-1"
+    simulator._SESSION.environment = "task_000458"
+    simulator._SESSION.profile = "deterministic"
+
+    result = simulator.stop_simulation()
+
+    assert commands == [
+        ["kill", "-TERM", "42"],
+        ["rm", "-f", "/tmp/cyclo_lab_ui_session.json"],
+    ]
+    assert result["state"] == "stopped"
+    assert simulator._SESSION.exec_id is None
+
+
+def test_simulator_stop_uses_exec_pid_during_startup(monkeypatch):
+    commands = []
+
+    class FakeContainer:
+        def exec_run(self, argv):
+            commands.append(argv)
+            return SimpleNamespace(exit_code=0)
+
+    fake_container = FakeContainer()
+    fake_client = SimpleNamespace()
+    pid_alive = iter([False, True, False, False])
+    exec_running = iter([False, False])
+    monkeypatch.setattr(simulator, "_docker_client", lambda: fake_client)
+    monkeypatch.setattr(simulator, "_running_container", lambda _client, _name: fake_container)
+    monkeypatch.setattr(simulator, "_read_status_document", lambda _container: {})
+    monkeypatch.setattr(simulator, "_pid_is_alive", lambda _container, _pid: next(pid_alive))
+    monkeypatch.setattr(simulator, "_exec_pid", lambda _client, _exec_id: 84)
+    monkeypatch.setattr(simulator, "_exec_is_running", lambda _client, _exec_id: next(exec_running))
+    monkeypatch.setattr(simulator, "_training_is_active", lambda _client: False)
+    monkeypatch.setattr(simulator.time, "sleep", lambda _seconds: None)
+    simulator._SESSION.exec_id = "starting-exec"
+
+    result = simulator.stop_simulation()
+
+    assert commands[0] == ["kill", "-TERM", "84"]
+    assert commands[-1] == ["rm", "-f", "/tmp/cyclo_lab_ui_session.json"]
+    assert result["state"] == "stopped"
 
 
 def test_navigation_grid_data_crc32_uses_only_map_data():
@@ -570,6 +842,10 @@ def test_groot_backend_uses_current_release_image():
     )
 
 
+def test_lerobot_backend_uses_s2r_container_namespace():
+    assert _BACKENDS["lerobot"]["container"] == "lerobot_server_s2r"
+
+
 def test_backend_status_model_exposes_stale_image_status():
     status = app.BackendStatus(
         name="groot",
@@ -590,13 +866,13 @@ def test_host_project_dir_falls_back_to_compose_container_name(monkeypatch):
 
         def get(self, name):
             self.requested.append(name)
-            if name == "cyclo_intelligence":
+            if name == "cyclo_intelligence_s2r":
                 return SimpleNamespace(
                     attrs={
                         "Mounts": [
                             {
                                 "Destination": app._CYCLO_REPO_MOUNT,
-                                "Source": "/home/rc/workspace/cyclo_intelligence",
+                                "Source": "/home/rc/workspace/cyclo_intelligence_s2r",
                             }
                         ]
                     }
@@ -613,9 +889,9 @@ def test_host_project_dir_falls_back_to_compose_container_name(monkeypatch):
     try:
         assert (
             app._host_project_dir()
-            == "/home/rc/workspace/cyclo_intelligence/docker"
+            == "/home/rc/workspace/cyclo_intelligence_s2r/docker"
         )
-        assert fake_containers.requested == ["ubuntu", "cyclo_intelligence"]
+        assert fake_containers.requested == ["ubuntu", "cyclo_intelligence_s2r"]
     finally:
         app._HOST_PROJECT_DIR_CACHE = None
 
@@ -627,18 +903,18 @@ def test_compose_env_uses_current_container_mounts(monkeypatch):
 
         def get(self, name):
             self.requested.append(name)
-            if name != "cyclo_intelligence":
+            if name != "cyclo_intelligence_s2r":
                 raise NotFound(name)
             return SimpleNamespace(
                 attrs={
                     "Mounts": [
                         {
                             "Destination": "/workspace",
-                            "Source": "/mnt/ssd/cyclo_intelligence/workspace",
+                            "Source": "/mnt/ssd/cyclo_intelligence_s2r/workspace",
                         },
                         {
                             "Destination": "/root/.cache/huggingface",
-                            "Source": "/mnt/ssd/cyclo_intelligence/huggingface",
+                            "Source": "/mnt/ssd/cyclo_intelligence_s2r/huggingface",
                         },
                     ]
                 }
@@ -658,18 +934,22 @@ def test_compose_env_uses_current_container_mounts(monkeypatch):
         env = _compose_env()
         assert (
             env["CYCLO_WORKSPACE_DIR"]
-            == "/mnt/ssd/cyclo_intelligence/workspace"
+            == "/mnt/ssd/cyclo_intelligence_s2r/workspace"
         )
         assert (
             env["CYCLO_HUGGINGFACE_DIR"]
-            == "/mnt/ssd/cyclo_intelligence/huggingface"
+            == "/mnt/ssd/cyclo_intelligence_s2r/huggingface"
         )
         assert env["ARCH"] == app._BACKEND_ARCH
+        assert env["CYCLO_COMPOSE_PROJECT_NAME"] == "cyclo_intelligence_s2r"
+        assert env["CYCLO_MAIN_CONTAINER_NAME"] == "cyclo_intelligence_s2r"
+        assert env["LEROBOT_CONTAINER_NAME"] == "lerobot_server_s2r"
+        assert env["LEROBOT_RUNTIME_NAMESPACE"] == "lerobot_s2r"
         assert fake_containers.requested == [
             "container-id",
-            "cyclo_intelligence",
+            "cyclo_intelligence_s2r",
             "container-id",
-            "cyclo_intelligence",
+            "cyclo_intelligence_s2r",
         ]
     finally:
         app._HOST_WORKSPACE_DIR_CACHE = None

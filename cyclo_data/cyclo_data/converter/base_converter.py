@@ -379,11 +379,31 @@ class ConversionConfig:
     selected_cameras: List[str] = field(default_factory=list)
     camera_rotations: Dict[str, int] = field(default_factory=dict)
     image_resize: Optional[Tuple[int, int]] = None  # (height, width)
+    # Per-camera output sizes take precedence over the legacy global resize.
+    # This allows landscape head cameras and portrait wrist cameras to retain
+    # their native aspect ratios in one dataset.
+    image_resize_by_camera: Dict[str, Tuple[int, int]] = field(
+        default_factory=dict
+    )
     selected_state_topics: List[str] = field(default_factory=list)
     selected_action_topics: List[str] = field(default_factory=list)
     selected_joints: List[str] = field(default_factory=list)
     # Audit metadata for the root info.json conversion_config snapshot.
     source_rosbags: List[str] = field(default_factory=list)
+
+    def image_resize_for_camera(
+        self, camera_name: str,
+    ) -> Optional[Tuple[int, int]]:
+        """Return this camera's output ``(height, width)`` resize, if any."""
+        resize = self.image_resize_by_camera.get(camera_name, self.image_resize)
+        if resize is None:
+            return None
+        height, width = int(resize[0]), int(resize[1])
+        if height <= 0 or width <= 0:
+            raise ValueError(
+                f"Invalid image resize for {camera_name}: {(height, width)}"
+            )
+        return height, width
 
 
 @dataclass
@@ -1289,6 +1309,12 @@ class RosbagToLerobotConverterBase:
                 list(self.config.image_resize)
                 if self.config.image_resize else None
             ),
+            "image_resize_by_camera": {
+                camera: list(resize)
+                for camera, resize in sorted(
+                    self.config.image_resize_by_camera.items()
+                )
+            },
             "selected_state_topics": list(self.config.selected_state_topics),
             "selected_action_topics": list(self.config.selected_action_topics),
             "selected_joints": list(self.config.selected_joints),
@@ -1566,6 +1592,8 @@ class RosbagToLerobotConverterBase:
             if mp4_file.stem.endswith("_synced"):
                 continue
             camera_name = self._get_camera_name_for_video(mp4_file.stem)
+            if self.config.selected_cameras and camera_name not in self.config.selected_cameras:
+                continue
             video_files.setdefault(camera_name, mp4_file)
         return video_files
 
@@ -2504,6 +2532,13 @@ class RosbagToLerobotConverterBase:
             or "geometry_msgs/msg/Twist" in topic_type
         )
 
+    @staticmethod
+    def _velocity_source_names(topic_type: str) -> List[str]:
+        """Return names for the unfiltered velocity vector emitted by decoders."""
+        if "Odometry" in topic_type or "Twist" in topic_type:
+            return ["linear_x", "linear_y", "angular_z"]
+        return []
+
     @classmethod
     def _extract_raw_cdr_positions(
         cls, topic_type: str, data: bytes
@@ -2628,13 +2663,10 @@ class RosbagToLerobotConverterBase:
 
             fallback_names: List[str] = []
             if "Odometry" in topic_type or "Twist" in topic_type:
-                group_key = self._get_topic_group_key(topic, role)
-                fallback_names = list(
-                    self._joint_order_by_group.get(
-                        group_key,
-                        ["linear_x", "linear_y", "angular_z"],
-                    )
-                )
+                # The decoder always emits the full physical 3-vector. Keep
+                # source names independent of a selected_joints projection so
+                # linear_y cannot be mistaken for vector index 0 (linear_x).
+                fallback_names = self._velocity_source_names(topic_type)
 
             topic_plan[topic] = (role, topic_type, fallback_names)
 
@@ -2872,11 +2904,7 @@ class RosbagToLerobotConverterBase:
                     if "Odometry" in topic_type:
                         positions = self._extract_velocity_from_odometry(msg)
                         if need_joint_names:
-                            group_key = self._get_topic_group_key(topic, "state")
-                            if group_key in self._joint_order_by_group:
-                                joint_names = self._joint_order_by_group[group_key]
-                            else:
-                                joint_names = ["linear_x", "linear_y", "angular_z"]
+                            joint_names = self._velocity_source_names(topic_type)
                     elif hasattr(msg, "position") and msg.position:
                         positions = np.asarray(msg.position, dtype=np.float32)
                         if need_joint_names:
@@ -2914,11 +2942,7 @@ class RosbagToLerobotConverterBase:
                     if "Twist" in topic_type:
                         positions = self._extract_velocity_from_twist(msg)
                         if need_joint_names:
-                            group_key = self._get_topic_group_key(topic, "action")
-                            if group_key in self._joint_order_by_group:
-                                joint_names = self._joint_order_by_group[group_key]
-                            else:
-                                joint_names = ["linear_x", "linear_y", "angular_z"]
+                            joint_names = self._velocity_source_names(topic_type)
                     else:
                         positions = self._extract_action_positions(msg)
                         if need_joint_names:
@@ -4063,7 +4087,7 @@ class RosbagToLerobotConverterBase:
             out_path = sync_output_dir / f"{cam_name}_synced.mp4"
             rotation_extra = int(ui_rotations.get(cam_name, 0) or 0)
             target_fps = int(self.config.fps)
-            image_resize = self.config.image_resize  # (height, width) or None
+            image_resize = self.config.image_resize_for_camera(cam_name)
             resize_key = (
                 list(image_resize) if image_resize else None
             )
@@ -4394,6 +4418,8 @@ class RosbagToLerobotConverterBase:
                 if mp4_file.stem.endswith("_synced"):
                     continue
                 camera_name = self._get_camera_name_for_video(mp4_file.stem)
+                if self.config.selected_cameras and camera_name not in self.config.selected_cameras:
+                    continue
                 if camera_name not in video_files:
                     video_files[camera_name] = mp4_file
 
@@ -5170,6 +5196,12 @@ class RosbagToLerobotConverterBase:
                     list(self.config.image_resize)
                     if self.config.image_resize else None
                 ),
+                'image_resize_by_camera': {
+                    camera: list(resize)
+                    for camera, resize in sorted(
+                        self.config.image_resize_by_camera.items()
+                    )
+                },
                 'selected_joint_state_topics': state_topics,
                 'primitive_instructions': [],
                 'selected_action_topics': action_topics,

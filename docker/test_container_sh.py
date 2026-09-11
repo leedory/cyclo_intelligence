@@ -124,7 +124,7 @@ def test_start_preserves_existing_legacy_runtime_env_file_without_touching(tmp_p
 
 def test_enter_lerobot_uses_plain_bash(tmp_path):
     docker_dir = _copy_container_script(tmp_path)
-    log_path = _write_enter_stub(tmp_path, "lerobot_server")
+    log_path = _write_enter_stub(tmp_path, "lerobot_server_s2r")
 
     subprocess.run(
         [str(docker_dir / "container.sh"), "enter-lerobot"],
@@ -138,8 +138,43 @@ def test_enter_lerobot_uses_plain_bash(tmp_path):
     legacy_runtime_env = docker_dir / "workspace" / "config" / "ros_zenoh.env"
     docker_calls = log_path.read_text().splitlines()
     assert not legacy_runtime_env.exists()
-    assert "exec -it lerobot_server bash" in docker_calls
+    assert "exec -it lerobot_server_s2r bash" in docker_calls
     assert not any("bash -lc" in call for call in docker_calls)
+
+
+def test_build_ui_uses_container_user_for_root_mounted_checkout(tmp_path):
+    docker_dir = _copy_container_script(tmp_path)
+    log_path = tmp_path / "docker.log"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    docker_stub = bin_dir / "docker"
+    docker_stub.write_text(
+        "#!/bin/sh\n"
+        "printf '%s\\n' \"$*\" >> \"$DOCKER_STUB_LOG\"\n"
+        "if [ \"$1\" = ps ]; then\n"
+        "  printf '%s\\n' 'cyclo_intelligence_s2r'\n"
+        "fi\n"
+        "exit 0\n"
+    )
+    docker_stub.chmod(0o755)
+
+    subprocess.run(
+        [str(docker_dir / "container.sh"), "build-ui"],
+        cwd=tmp_path,
+        env=_stub_env(tmp_path, log_path),
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+
+    docker_calls = log_path.read_text().splitlines()
+    npm_build = next(call for call in docker_calls if " npm run build" in call)
+    assert npm_build == (
+        "exec -e HOME=/tmp "
+        "-w /root/ros2_ws/src/cyclo_intelligence/orchestrator/ui "
+        "cyclo_intelligence_s2r npm run build"
+    )
+    assert " -u " not in f" {npm_build} "
 
 
 def test_start_pulls_main_image_only(tmp_path):
@@ -226,7 +261,7 @@ def test_start_does_not_remove_policy_container_with_stale_workspace_mount(tmp_p
         "if [ \"$1\" = inspect ] && [ \"$2\" = -f ]; then\n"
         "  case \"$3\" in\n"
         "    *'.Destination \"/workspace\"'*)\n"
-        "      if [ \"$4\" = lerobot_server ]; then\n"
+        "      if [ \"$4\" = lerobot_server_s2r ]; then\n"
         "        printf '%s\\n' '/old/workspace'\n"
         "      else\n"
         "        printf '%s\\n' \"$EXPECTED_WORKSPACE_DIR\"\n"
@@ -257,6 +292,7 @@ def test_start_does_not_remove_policy_container_with_stale_workspace_mount(tmp_p
     )
 
     docker_calls = log_path.read_text().splitlines()
+    assert "rm -f lerobot_server_s2r" not in docker_calls
     assert "rm -f lerobot_server" not in docker_calls
     assert "rm -f groot_server" not in docker_calls
 
@@ -316,6 +352,7 @@ def test_start_lerobot_removes_stale_workspace_mount(tmp_path):
     )
     assert not any("pull --ignore-pull-failures groot" in call for call in docker_calls)
     assert any(
-        call == "rm -f lerobot_server"
+        call == "rm -f lerobot_server_s2r"
         for call in docker_calls
     )
+    assert "rm -f lerobot_server" not in docker_calls

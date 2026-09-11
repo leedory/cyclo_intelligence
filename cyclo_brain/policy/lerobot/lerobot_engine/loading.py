@@ -18,18 +18,17 @@ of the ``/app/lerobot_engine/`` package.
 Owns:
 - ``_resolve_model_dir``: auto-descend lerobot training-output roots.
 - ``_load_policy_assets``: load weights + stored pre/post processors.
-- ``_infer_image_resize``: read per-input-image shape hints off the policy.
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import torch
 
-from .image_preprocessing import infer_image_resize_targets
+from .policy_contract import load_policy_contract, validate_policy_config
 
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.policies import get_policy_class, make_pre_post_processors
@@ -40,21 +39,34 @@ logger = logging.getLogger("lerobot_engine")
 
 
 class LoadingMixin:
-    """Policy load helpers — weights, processors, resize hint."""
+    """Policy contract, weight, and saved-processor loading helpers."""
+
+    @staticmethod
+    def _load_policy_contract(model_path: str):
+        return load_policy_contract(model_path)
+
+    @staticmethod
+    def _validate_policy_contract(contract, policy: PreTrainedPolicy) -> None:
+        validate_policy_config(contract, policy.config)
 
     @staticmethod
     def _resolve_model_dir(model_path: str) -> str:
         """Auto-descend lerobot training-output roots.
 
-        Users frequently paste the training-output root which contains
-        ``pretrained_model/`` next to ``training_state/``. Strip that
-        wrapper if needed so ``from_pretrained`` finds ``config.json``.
+        Accept a direct pretrained model, a checkpoint directory containing
+        ``pretrained_model``, or a run root with ``checkpoints/last``.
         """
         root = Path((model_path or "").strip())
-        nested = root / "pretrained_model"
-        if not (root / "config.json").exists() and (nested / "config.json").exists():
-            logger.info("Descending into pretrained_model: %s", nested)
-            return str(nested)
+        candidates = (
+            root,
+            root / "pretrained_model",
+            root / "checkpoints" / "last" / "pretrained_model",
+        )
+        for candidate in candidates:
+            if (candidate / "config.json").is_file():
+                if candidate != root:
+                    logger.info("Resolved pretrained model directory: %s", candidate)
+                return str(candidate)
         return str(root)
 
     @staticmethod
@@ -65,13 +77,15 @@ class LoadingMixin:
         import json
 
         config_path = Path(model_path) / "config.json"
-        if config_path.exists():
-            with open(config_path) as f:
-                policy_type = json.load(f).get("type", "act")
-        else:
-            # ACT was the original default; fall back to it for
-            # checkpoints saved before ``type`` started being recorded.
-            policy_type = "act"
+        if not config_path.is_file():
+            raise RuntimeError(f"checkpoint is missing policy config: {config_path}")
+        try:
+            with config_path.open(encoding="utf-8") as handle:
+                policy_type = json.load(handle).get("type")
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(f"cannot read policy config {config_path}: {exc}") from exc
+        if not isinstance(policy_type, str) or not policy_type:
+            raise RuntimeError(f"policy config has no non-empty type: {config_path}")
 
         logger.info("Policy type: %s", policy_type)
         PolicyClass = get_policy_class(policy_type)
@@ -113,18 +127,3 @@ class LoadingMixin:
         )
         logger.info("Pre/post processors loaded")
         return policy, preprocessor, postprocessor
-
-    def _infer_image_resize(self, policy: PreTrainedPolicy) -> Dict[str, Tuple[int, int]]:
-        """Best-effort per-policy-key target ``(W, H)`` from config.
-
-        Many lerobot policies advertise the expected image shape under
-        ``input_features['observation.images.<cam>'].shape = (C, H, W)``.
-        Pre-resizing on the host keeps mixed camera shapes aligned with the
-        dataset metadata. Missing keys mean: leave that camera at native size.
-        """
-        try:
-            features = getattr(policy.config, "input_features", {}) or {}
-            return infer_image_resize_targets(features)
-        except Exception:
-            pass
-        return {}

@@ -3,10 +3,16 @@ import PageType from '../constants/pageType';
 import {
   getInferenceTaskInfoKey,
   hasRosTaskInfoPayload,
+  rosTaskInfoToUiTaskInfo,
   shouldApplyServerTaskInfoToPage,
 } from './taskInfoSync';
 
 describe('taskInfoSync echo routing', () => {
+  test('maps the S2R runtime namespace back to visible LeRobot selection', () => {
+    expect(rosTaskInfoToUiTaskInfo({ service_type: 'lerobot_s2r' }).serviceType)
+      .toBe('lerobot');
+  });
+
   test('detects inference task info even without record identity fields', () => {
     expect(hasRosTaskInfoPayload({
       task_type: 'inference',

@@ -39,7 +39,7 @@ Environment overrides:
     CYCLO_SUPERVISOR_API_CONTAINER_NAME
                                       Docker container name to inspect for
                                       host-side bind mount paths
-                                      (default cyclo_intelligence fallback)
+                                      (default cyclo_intelligence_s2r)
 """
 
 from __future__ import annotations
@@ -83,6 +83,18 @@ _navigation_module = importlib.util.module_from_spec(_NAVIGATION_SPEC)
 sys.modules[_NAVIGATION_SPEC.name] = _navigation_module
 _NAVIGATION_SPEC.loader.exec_module(_navigation_module)
 navigation_router = _navigation_module.router
+
+_SIMULATOR_PATH = Path(__file__).resolve().with_name("simulator.py")
+_SIMULATOR_SPEC = importlib.util.spec_from_file_location(
+    "supervisor_api.simulator",
+    _SIMULATOR_PATH,
+)
+if _SIMULATOR_SPEC is None or _SIMULATOR_SPEC.loader is None:
+    raise ImportError(f"Cannot load simulator router from {_SIMULATOR_PATH}")
+_simulator_module = importlib.util.module_from_spec(_SIMULATOR_SPEC)
+sys.modules[_SIMULATOR_SPEC.name] = _simulator_module
+_SIMULATOR_SPEC.loader.exec_module(_simulator_module)
+simulator_router = _simulator_module.router
 
 
 logger = logging.getLogger("supervisor_api")
@@ -294,6 +306,19 @@ def _detect_arch() -> str:
 
 
 _BACKEND_ARCH = os.environ.get("ARCH", _detect_arch())
+_S2R_COMPOSE_PROJECT = os.environ.get(
+    "CYCLO_COMPOSE_PROJECT_NAME", "cyclo_intelligence_s2r"
+)
+_S2R_MAIN_CONTAINER = os.environ.get(
+    "CYCLO_SUPERVISOR_API_CONTAINER_NAME",
+    os.environ.get("CYCLO_MAIN_CONTAINER_NAME", "cyclo_intelligence_s2r"),
+)
+_S2R_LEROBOT_CONTAINER = os.environ.get(
+    "LEROBOT_CONTAINER_NAME", "lerobot_server_s2r"
+)
+_S2R_LEROBOT_RUNTIME_NAMESPACE = os.environ.get(
+    "LEROBOT_RUNTIME_NAMESPACE", "lerobot_s2r"
+)
 
 
 # Image versions are hardcoded per backend below since each service has
@@ -303,7 +328,7 @@ _BACKEND_ARCH = os.environ.get("ARCH", _detect_arch())
 _BACKENDS: Dict[str, Dict[str, str]] = {
     "lerobot": {
         "service": "lerobot",
-        "container": "lerobot_server",
+        "container": _S2R_LEROBOT_CONTAINER,
         "image": f"robotis/lerobot-zenoh:1.4.0-{_BACKEND_ARCH}",
         "services": ["main-runtime", "engine-process"],
     },
@@ -402,8 +427,9 @@ def _normalized_host_path(path: Optional[str]) -> Optional[str]:
 def _self_container_candidates() -> List[str]:
     candidates = [
         os.environ.get("CYCLO_SUPERVISOR_API_CONTAINER_NAME"),
+        os.environ.get("CYCLO_MAIN_CONTAINER_NAME"),
         os.environ.get("HOSTNAME"),
-        "cyclo_intelligence",
+        _S2R_MAIN_CONTAINER,
     ]
     seen: List[str] = []
     for candidate in candidates:
@@ -538,6 +564,10 @@ def _compose_env() -> Dict[str, str]:
     if huggingface_dir:
         env["CYCLO_HUGGINGFACE_DIR"] = huggingface_dir
     env.setdefault("ARCH", _BACKEND_ARCH)
+    env.setdefault("CYCLO_COMPOSE_PROJECT_NAME", _S2R_COMPOSE_PROJECT)
+    env.setdefault("CYCLO_MAIN_CONTAINER_NAME", _S2R_MAIN_CONTAINER)
+    env.setdefault("LEROBOT_CONTAINER_NAME", _S2R_LEROBOT_CONTAINER)
+    env.setdefault("LEROBOT_RUNTIME_NAMESPACE", _S2R_LEROBOT_RUNTIME_NAMESPACE)
     return env
 
 
@@ -1077,6 +1107,7 @@ app = FastAPI(
 )
 
 _include_router_with_eager_routes(app, navigation_router)
+_include_router_with_eager_routes(app, simulator_router)
 
 
 @app.get("/health", response_model=HealthResponse)

@@ -67,6 +67,7 @@ cyclo_brain/policy/groot/checkpoints/
 .idea/
 *.swp
 *.swo
+*.orig
 .DS_Store
 Thumbs.db
 

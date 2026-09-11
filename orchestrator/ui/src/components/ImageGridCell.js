@@ -83,6 +83,9 @@ export default function ImageGridCell({
   onClose,
   onPlusClick,
   isActive = true,
+  showControls = true,
+  objectFit = 'cover',
+  letterboxColor = '#f3f4f6',
   style = {},
 }) {
   const normalizedRotationDegrees = normalizeRotationDegrees(rotationDegrees);
@@ -144,6 +147,8 @@ export default function ImageGridCell({
       const streamTopic = topic.endsWith('/compressed') ? topic.slice(0, -11) : topic;
       img.src = `http://${rosHost}:${CYCLO_WEB_VIDEO_SERVER_PORT}/stream?quality=50&type=ros_compressed&default_transport=compressed&topic=${streamTopic}&t=${timestamp}`;
       img.alt = topic;
+      img.style.objectFit = objectFit;
+      img.style.backgroundColor = letterboxColor;
 
       img.onclick = (e) => e.stopPropagation();
       img.onerror = () => {
@@ -183,7 +188,6 @@ export default function ImageGridCell({
 
         img.style.width = '100%';
         img.style.height = '100%';
-        img.style.objectFit = 'cover';
         img.style.display = 'block';
 
         wrapper.appendChild(img);
@@ -193,7 +197,7 @@ export default function ImageGridCell({
           currentImgRef.current = wrapper;
         }
       } else {
-        img.className = 'w-full h-full object-cover bg-gray-100';
+        img.className = 'w-full h-full bg-gray-100';
 
         if (containerRef.current && !cancelRef.current) {
           containerRef.current.appendChild(img);
@@ -212,6 +216,8 @@ export default function ImageGridCell({
     swapsDimensions,
     aspectRatio,
     normalizedRotationDegrees,
+    objectFit,
+    letterboxColor,
     destroyImage,
   ]);
 
@@ -249,7 +255,7 @@ export default function ImageGridCell({
       onClick={!topic ? () => onPlusClick(idx) : undefined}
       style={{ cursor: !topic ? 'pointer' : 'default', aspectRatio: aspect, ...style }}
     >
-      {topic && topic.trim() !== '' && (
+      {showControls && topic && topic.trim() !== '' && (
         <>
           <button
             type="button"

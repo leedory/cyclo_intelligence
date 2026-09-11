@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 const API_BASE = '/api';
 const DEFAULT_POLL_MS = 2000;
-export const BACKEND_WARMUP_MIN_UPTIME_S = 45;
+// main-runtime exits after 120 s when its EngineCommand handshake never
+// succeeds. Requiring it to live past that fail-closed timeout prevents the
+// UI from briefly advertising Ready while a missing Zenoh router restarts it.
+export const BACKEND_WARMUP_MIN_UPTIME_S = 130;
 
 export const POLICY_BACKEND_SERVICE_LABELS = {
   'main-runtime': 'Main',

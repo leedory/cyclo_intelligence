@@ -501,7 +501,10 @@ class RosbagToLerobotV30Converter(RosbagToLerobotConverterBase):
             return False
         if not self.config.use_videos:
             return False
-        if self.config.image_resize is not None:
+        if (
+            self.config.image_resize is not None
+            or self.config.image_resize_by_camera
+        ):
             return False
         if any(int(value or 0) for value in self.config.camera_rotations.values()):
             return False
@@ -720,6 +723,12 @@ class RosbagToLerobotV30Converter(RosbagToLerobotConverterBase):
                         tuple(self.config.image_resize)
                         if self.config.image_resize else None
                     ),
+                    'image_resize_by_camera': {
+                        camera: tuple(resize)
+                        for camera, resize in (
+                            self.config.image_resize_by_camera.items()
+                        )
+                    },
                     'selected_state_topics': list(self.config.selected_state_topics),
                     'selected_action_topics': list(self.config.selected_action_topics),
                     'selected_joints': list(self.config.selected_joints),

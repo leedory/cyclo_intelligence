@@ -55,6 +55,12 @@ export const getRecordTaskInfoKey = (taskInfo = {}) =>
 export const getInferenceTaskInfoKey = (taskInfo = {}) =>
   JSON.stringify(normalizeInferenceTaskInfo(taskInfo));
 
+const uiServiceType = (serviceType) => (
+  String(serviceType || '').trim() === 'lerobot_s2r'
+    ? 'lerobot'
+    : String(serviceType || '').trim() || 'lerobot'
+);
+
 export const rosTaskInfoToUiTaskInfo = (taskInfo = {}) => ({
   taskNum: taskInfo.task_num || '',
   taskName: taskInfo.task_name || '',
@@ -63,7 +69,7 @@ export const rosTaskInfoToUiTaskInfo = (taskInfo = {}) => ({
   subtaskInstruction: taskInfo.subtask_instruction || [],
   policyPath: taskInfo.policy_path || '',
   recordInferenceMode: Boolean(taskInfo.record_inference_mode),
-  serviceType: taskInfo.service_type || 'lerobot',
+  serviceType: uiServiceType(taskInfo.service_type),
   inferenceMode: taskInfo.inference_mode || 'simulation',
   actionRequestMode: actionRequestModeOrDefault(taskInfo.action_request_mode),
   accelerationMode: taskInfo.acceleration_mode || 'pytorch',

@@ -30,8 +30,9 @@ string robot_type
 # LOAD (training-time conditioning) and refreshed on RESUME (online
 # re-conditioning without re-loading the model).
 string task_instruction
-# Safety gate. false means dry-run / 3D preview only; true permits Main runtime
-# to publish robot command topics. Default false for regenerated clients.
+# Legacy-named action-output gate. false means dry-run only; true permits Main
+# runtime to publish the configured command topics (Cyclo Lab for workstation
+# Isaac deployment, physical command topics for a robot runtime).
 bool publish_to_robot
 # Action chunk request scheduling at LOAD time. Empty / "async" preserves the
 # current prefetch behavior. "sync" requests only after the active buffer drains.

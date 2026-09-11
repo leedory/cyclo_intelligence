@@ -32,7 +32,7 @@ describe('getPolicyBackendReadiness', () => {
     });
   });
 
-  it('treats the common main and engine runtime services as ready', () => {
+  it('does not report ready inside the engine handshake timeout window', () => {
     const readiness = getPolicyBackendReadiness({
       image_pulled: true,
       image_status: 'current',
@@ -47,6 +47,32 @@ describe('getPolicyBackendReadiness', () => {
           name: 'engine-process',
           state: 'up',
           uptime_s: 60,
+        },
+      ],
+    });
+
+    expect(readiness).toEqual({
+      ready: false,
+      state: 'warming',
+      message: 'Backend warming up... 70s',
+    });
+  });
+
+  it('treats the common main and engine runtime services as ready after the handshake window', () => {
+    const readiness = getPolicyBackendReadiness({
+      image_pulled: true,
+      image_status: 'current',
+      container_state: 'running',
+      services: [
+        {
+          name: 'main-runtime',
+          state: 'up',
+          uptime_s: 130,
+        },
+        {
+          name: 'engine-process',
+          state: 'up',
+          uptime_s: 130,
         },
       ],
     });
