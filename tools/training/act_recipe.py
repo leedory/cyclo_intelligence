@@ -396,6 +396,8 @@ def _validate_training(recipe: dict[str, Any]) -> None:
     for field in ("repo_id", "root"):
         if not isinstance(dataset.get(field), str) or not dataset[field]:
             raise RecipeError(f"dataset.{field} must be a non-empty string")
+    if dataset.get("expected_episodes") is not None:
+        _positive_int(dataset["expected_episodes"], "dataset.expected_episodes")
     _container_path_to_host(dataset["root"])
     eval_split = _finite_number(dataset.get("eval_split"), "dataset.eval_split", minimum=0.0)
     if eval_split >= 1.0:
@@ -497,6 +499,12 @@ def validate_dataset(
         )
     if float(info.get("fps", 0)) != float(policy_io["fps"]):
         raise RecipeError(f"dataset fps mismatch: expected {policy_io['fps']}, got {info.get('fps')}")
+    expected_episodes = recipe["dataset"].get("expected_episodes")
+    if expected_episodes is not None and info.get("total_episodes") != expected_episodes:
+        raise RecipeError(
+            "dataset episode count mismatch: "
+            f"expected {expected_episodes}, got {info.get('total_episodes')}"
+        )
 
     features = _mapping(info.get("features"), "dataset info.features")
     for key, expected in (("observation.state", state_features), ("action", action_features)):

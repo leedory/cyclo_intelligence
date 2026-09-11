@@ -1,7 +1,7 @@
 task:
-  id: task_000525
+  id: task_000002
   robot_type: ffw_sg2_rev1
-  instruction: Pick the green coffee can out of the cabinet, carry it to the dining table, place it on the mat, and return to the home pose.
+  instruction: Move the right orange coffee can with the right hand and the left orange coffee can with the left hand to the matching cabinet on the right.
 
 policy_io:
   fps: 15
@@ -11,11 +11,11 @@ policy_io:
     head: [head_joint1, head_joint2]
     lift: [lift_joint]
     mobile: [linear_x, linear_y, angular_z]
-  state_components: [arm_right, head, lift]
-  action_components: [arm_right, head, lift]
+  state_components: [arm_left, arm_right, mobile]
+  action_components: [arm_left, arm_right, mobile]
   inactive_actions:
-    arm_left: hold_current
-    mobile: hold_current
+    head: hold_current
+    lift: hold_current
   camera_inputs: [head]
   cameras:
     head:
@@ -25,25 +25,12 @@ policy_io:
       height: 376
       orientation: landscape
       upright: true
-    left_wrist:
-      key: observation.images.rgb.cam_left_wrist
-      source: cam_left_wrist
-      width: 480
-      height: 640
-      orientation: portrait
-      upright: true
-    right_wrist:
-      key: observation.images.rgb.cam_right_wrist
-      source: cam_right_wrist
-      width: 480
-      height: 640
-      orientation: portrait
-      upright: true
 
 dataset:
-  repo_id: robotis/task_000525_contract_smoke_right_head_lift_11d
-  root: /workspace/dataset/robotis/task_000525_contract_smoke_right_head_lift_11d
+  repo_id: robotis/task_000002_coffee_transport_headcam_full_base_v30
+  root: /workspace/dataset/robotis/task_000002_coffee_transport_headcam_full_base_v30
   episodes: null
+  expected_episodes: 450
   eval_split: 0.0
   use_imagenet_stats: true
   video_backend: torchcodec
@@ -56,24 +43,18 @@ dataset:
       brightness:
         weight: 1
         type: ColorJitter
-        kwargs:
-          brightness: [0.95, 1.05]
+        kwargs: {brightness: [0.95, 1.05]}
       affine:
         weight: 1
         type: RandomAffine
-        kwargs:
-          degrees: [-2, 2]
-          translate: [0.01, 0.01]
+        kwargs: {degrees: [-2, 2], translate: [0.01, 0.01]}
 
 policy:
   type: act
   n_obs_steps: 1
-  chunk_size: 45
-  n_action_steps: 45
-  normalization:
-    VISUAL: MEAN_STD
-    STATE: MEAN_STD
-    ACTION: MEAN_STD
+  chunk_size: 30
+  n_action_steps: 30
+  normalization: {VISUAL: MEAN_STD, STATE: MEAN_STD, ACTION: MEAN_STD}
   vision_backbone: resnet18
   pretrained_backbone_weights: ResNet18_Weights.IMAGENET1K_V1
   replace_final_stride_with_dilation: false
@@ -97,10 +78,7 @@ policy:
 
 optimizer:
   mode: policy_preset
-  policy_preset:
-    lr: 0.00001
-    lr_backbone: 0.00001
-    weight_decay: 0.0001
+  policy_preset: {lr: 0.00001, lr_backbone: 0.00001, weight_decay: 0.0001}
   custom:
     type: adamw
     lr: 0.00001
@@ -108,47 +86,35 @@ optimizer:
     grad_clip_norm: 10.0
     betas: [0.9, 0.999]
     eps: 0.00000001
-
-scheduler:
-  type: none
-  num_warmup_steps: 0
-
+scheduler: {type: none, num_warmup_steps: 0}
 state_noise:
   enabled: true
   space: normalized
   distribution: gaussian
-  # Default for every selected state feature (not action); normalized units here.
   std: 0.01
-  # Exact feature-name overrides; order is irrelevant and 0.0 disables that
-  # feature. Only names selected by state_components are valid.
-  std_by_feature: {}
-
+  std_by_feature: {linear_x: 0.0, linear_y: 0.0, angular_z: 0.0}
 training:
-  job_name: task_000525_right_head_lift11_head_only_smoke
-  output_dir: /workspace/model/lerobot/smoke/task_000525_right_head_lift11_head_only_250
-  steps: 250
-  batch_size: 16
+  job_name: task_000002_coffee_transport_headcam_full_base_act
+  output_dir: /workspace/model/lerobot/task_000002_coffee_transport_headcam_full_base_act
+  steps: 50000
+  batch_size: 32
   num_workers: 4
   prefetch_factor: 4
   persistent_workers: true
-  seed: 1000
+  seed: 1002
   cudnn_deterministic: false
   mixed_precision: "no"
   tolerance_s: 0.0001
   save_checkpoint: true
-  save_freq: 250
-  log_freq: 25
+  save_freq: 10000
+  log_freq: 100
   env_eval_freq: 0
   eval_steps: 0
   max_eval_samples: 0
   resume: false
   resume_config: null
-
-wandb:
-  enable: false
-  project: cyclo-sg2-act
-
+wandb: {enable: false, project: cyclo-sg2-act}
 simulation:
-  environment: Cyclo-Real-Showroom-Task000525-FFW-SG2-v0
-  randomized_environment: Cyclo-Real-Showroom-Task000525-Random-FFW-SG2-v0
+  environment: Cyclo-Real-Showroom-Task000002-FFW-SG2-v0
+  randomized_environment: Cyclo-Real-Showroom-Task000002-Random-FFW-SG2-v0
   default_reset: deterministic

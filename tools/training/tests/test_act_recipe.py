@@ -50,6 +50,56 @@ class ActRecipeTest(unittest.TestCase):
         self.assertEqual(fixed.payload["policy_io"]["fps"], 15)
         self.assertEqual(fixed.camera_inputs, ("head", "left_wrist", "right_wrist"))
 
+    def test_coffee_recipes_keep_complete_robot_action_groups(self):
+        lift = self.resolve("task_000001")
+        mobile = self.resolve("task_000002")
+
+        self.assertEqual(lift.state_features, lift.action_features)
+        self.assertEqual(lift.state_features[-1], "lift_joint")
+        self.assertEqual(len(lift.state_features), 17)
+        self.assertEqual(mobile.state_features, mobile.action_features)
+        self.assertEqual(
+            mobile.state_features[-3:], ("linear_x", "linear_y", "angular_z")
+        )
+        self.assertEqual(len(mobile.state_features), 19)
+        self.assertEqual(
+            mobile.payload["policy_io"]["inactive_actions"],
+            {"head": "hold_current", "lift": "hold_current"},
+        )
+
+    def test_dataset_expected_episode_count_is_enforced_when_declared(self):
+        resolved = self.resolve("task_000001")
+        cameras = resolved.payload["policy_io"]["cameras"]
+        info = {
+            "robot_type": resolved.payload["task"]["robot_type"],
+            "fps": resolved.payload["policy_io"]["fps"],
+            "total_episodes": 449,
+            "features": {
+                "observation.state": {
+                    "shape": [len(resolved.state_features)],
+                    "names": list(resolved.state_features),
+                },
+                "action": {
+                    "shape": [len(resolved.action_features)],
+                    "names": list(resolved.action_features),
+                },
+                cameras["head"]["key"]: {
+                    "shape": [3, cameras["head"]["height"], cameras["head"]["width"]]
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "meta").mkdir()
+            (root / "meta/info.json").write_text(json.dumps(info), encoding="utf-8")
+            with self.assertRaisesRegex(act_recipe.RecipeError, "episode count mismatch"):
+                act_recipe.validate_dataset(
+                    resolved.payload,
+                    root,
+                    resolved.state_features,
+                    resolved.action_features,
+                )
+
     def test_cli_defaults_to_s2r_lerobot_container(self):
         previous = os.environ.pop("LEROBOT_CONTAINER_NAME", None)
         self.addCleanup(
@@ -296,13 +346,16 @@ class ActRecipeTest(unittest.TestCase):
 
     def test_groot_recipe_builds_selected_io_and_container_command(self):
         resolved = act_recipe.resolve_recipe(
-            REPO_ROOT / "training/task_000525/groot_orange_01_02_headcam_recommended.yaml",
+            REPO_ROOT / "training/task_000525/groot.yaml",
             validate_data=False,
         )
 
         self.assertEqual(resolved.payload["policy"]["type"], "groot")
-        self.assertEqual(len(resolved.state_features), 18)
+        self.assertEqual(len(resolved.state_features), 21)
         self.assertEqual(resolved.state_features, resolved.action_features)
+        self.assertEqual(
+            resolved.state_features[-3:], ("linear_x", "linear_y", "angular_z")
+        )
         args = act_recipe.build_lerobot_args(resolved)
         self.assertIn("--policy.type=groot", args)
         self.assertIn("--policy.base_model_path=nvidia/GR00T-N1.7-3B", args)
@@ -311,14 +364,14 @@ class ActRecipeTest(unittest.TestCase):
         self.assertEqual(set(features), {"observation.state", "observation.images.rgb.cam_left_head"})
         output_arg = next(arg for arg in args if arg.startswith("--policy.output_features="))
         output_features = json.loads(output_arg.split("=", 1)[1])
-        self.assertEqual(output_features["action"]["shape"], [18])
+        self.assertEqual(output_features["action"]["shape"], [21])
 
         command = act_recipe.build_docker_command(resolved, "groot_server")
         self.assertIn("groot_server", command)
         self.assertIn("lerobot-train", command)
         manifest = act_recipe.policy_manifest(resolved)
         self.assertEqual(set(manifest["cameras"]), {"cam_left_head"})
-        self.assertEqual(manifest["action"]["inactive"], {"lift": "hold_current", "mobile": "hold_current"})
+        self.assertEqual(manifest["action"]["inactive"], {"lift": "hold_current"})
 
 
 

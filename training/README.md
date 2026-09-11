@@ -10,9 +10,9 @@ python3 tools/training/act_recipe.py validate training/task_000525/act.yaml
 python3 tools/training/act_recipe.py plan training/task_000525/act.yaml
 python3 tools/training/act_recipe.py run training/task_000525/act.yaml
 
-python3 tools/training/groot_recipe.py validate training/task_000525/groot_orange_01_02_headcam_recommended.yaml
-python3 tools/training/groot_recipe.py plan training/task_000525/groot_orange_01_02_headcam_recommended.yaml
-python3 tools/training/groot_recipe.py run training/task_000525/groot_orange_01_02_headcam_recommended.yaml
+python3 tools/training/groot_recipe.py validate training/task_000525/groot.yaml
+python3 tools/training/groot_recipe.py plan training/task_000525/groot.yaml
+python3 tools/training/groot_recipe.py run training/task_000525/groot.yaml
 ```
 
 Dataset and output paths are container paths below `/workspace`; on the host
@@ -134,3 +134,46 @@ the run root and each complete `checkpoints/<step>/pretrained_model` directory.
 The full training provenance is kept separately as `resolved_recipe.yaml` at
 the run root. A checkpoint is finalized only after its model, policy config,
 train config, and positive training-step state are all present.
+
+## Coffee Transport 000001/000002
+
+Each Coffee Transport task has one canonical head-camera ACT recipe. Use the
+same generic runner as every other task:
+
+```bash
+python3 tools/training/act_recipe.py validate training/task_000001/act.yaml
+python3 tools/training/act_recipe.py plan training/task_000001/act.yaml
+python3 tools/training/act_recipe.py validate training/task_000002/act.yaml
+python3 tools/training/act_recipe.py plan training/task_000002/act.yaml
+```
+
+`dataset.expected_episodes` is enforced by the generic validator. Before a
+dataset exists, validate only the recipe structure with `--skip-dataset`.
+
+```bash
+python3 tools/training/act_recipe.py validate training/task_000002/act.yaml --skip-dataset
+```
+
+Task 000001 trains 17 state/action values: both seven-joint arms, both grippers,
+and lift. Task 000002 trains both arms, both grippers, and the complete mobile
+base: 19 state/action values ending in `[linear_x, linear_y, angular_z]`. The
+full-base contract is required for new datasets, runs, and deployments. A legacy
+policy that predicts only `linear_y` is incompatible and must be retrained;
+runtime zero-fill projection is deliberately unsupported. Head and the unused
+lift or mobile group remain `hold_current` through the normal inactive-action
+contract.
+
+Full-base recipes use `full_base` in dataset and output names. This is a data
+compatibility boundary, not an experiment label: it prevents an existing
+`linear_y`-only dataset or checkpoint from being accepted or resumed by path.
+Task 000525 follows the same rule for its base-commanding GR00T recipe. Until a
+matching full-base dataset exists, use `--skip-dataset` only to inspect recipe
+structure; do not point the recipe back at an older lower-dimensional dataset.
+
+Machine names, measured throughput, dataset build attempts, and one-off
+hyperparameter sweeps do not belong in canonical filenames. Preserve those in
+the experiment tracker or a run's `resolved_recipe.yaml`; create a separate
+reviewed recipe only when it represents a reusable policy contract.
+
+For the verified 5090-to-1050 deployment boundary and current Zenoh connectivity
+status, see [`docs/operations/5090-to-1050-inference.md`](../docs/operations/5090-to-1050-inference.md).

@@ -1,7 +1,7 @@
 task:
   id: task_000525
   robot_type: ffw_sg2_rev1
-  instruction: Pick the green coffee can out of the cabinet, carry it to the dining table, place it on the mat, and return to the home pose.
+  instruction: Pick the orange coffee can out of the cabinet and carry it to the home pose.
 
 policy_io:
   fps: 15
@@ -11,11 +11,12 @@ policy_io:
     head: [head_joint1, head_joint2]
     lift: [lift_joint]
     mobile: [linear_x, linear_y, angular_z]
-  state_components: [arm_left, arm_right, head, lift, mobile]
-  action_components: [arm_left, arm_right, head, lift, mobile]
-  inactive_actions: {}
+  state_components: [arm_left, arm_right, head, mobile]
+  action_components: [arm_left, arm_right, head, mobile]
+  inactive_actions:
+    lift: hold_current
   # Change only this list for camera-ablation experiments.
-  camera_inputs: [head, left_wrist, right_wrist]
+  camera_inputs: [head]
   cameras:
     head:
       key: observation.images.rgb.cam_left_head
@@ -40,8 +41,8 @@ policy_io:
       upright: true
 
 dataset:
-  repo_id: robotis/task_000525_contract_smoke_aug2_canonical
-  root: /workspace/dataset/robotis/task_000525_contract_smoke_aug2_canonical
+  repo_id: robotis/task_000525_orange_01_02_augmented_full_base_v30
+  root: /workspace/dataset/robotis/task_000525_orange_01_02_augmented_full_base_v30
   episodes: null
   eval_split: 0.0
   use_imagenet_stats: true
@@ -65,30 +66,37 @@ dataset:
           translate: [0.01, 0.01]
 
 policy:
-  type: act
+  type: groot
   n_obs_steps: 1
-  chunk_size: 45
-  n_action_steps: 45
+  chunk_size: 40
+  n_action_steps: 40
+  max_state_dim: 132
+  max_action_dim: 132
   normalization:
-    VISUAL: MEAN_STD
-    STATE: MEAN_STD
-    ACTION: MEAN_STD
-  vision_backbone: resnet18
-  pretrained_backbone_weights: ResNet18_Weights.IMAGENET1K_V1
-  replace_final_stride_with_dilation: false
-  pre_norm: false
-  dim_model: 512
-  n_heads: 8
-  dim_feedforward: 3200
-  feedforward_activation: relu
-  n_encoder_layers: 4
-  n_decoder_layers: 1
-  use_vae: true
-  latent_dim: 32
-  n_vae_encoder_layers: 4
-  temporal_ensemble_coeff: null
-  dropout: 0.1
-  kl_weight: 10.0
+    VISUAL: IDENTITY
+    STATE: IDENTITY
+    ACTION: IDENTITY
+  base_model_path: nvidia/GR00T-N1.7-3B
+  embodiment_tag: new_embodiment
+  action_decode_transform: none
+  tune_llm: false
+  tune_visual: false
+  tune_projector: true
+  tune_diffusion_model: true
+  tune_vlln: true
+  tune_top_llm_layers: 0
+  num_inference_timesteps: null
+  rtc_ramp_rate: null
+  use_flash_attention: false
+  use_relative_actions: false
+  relative_exclude_joints: []
+  optimizer_lr: 0.0001
+  optimizer_betas: [0.9, 0.999]
+  optimizer_eps: 0.00000001
+  optimizer_weight_decay: 0.00001
+  warmup_ratio: 0.05
+  use_bf16: true
+  model_params_fp32: true
   device: cuda
   inference_amp: false
   push_to_hub: false
@@ -96,48 +104,46 @@ policy:
 
 optimizer:
   mode: policy_preset
+  # GR00T uses policy.optimizer_* fields above through its LeRobot preset.
   policy_preset:
-    lr: 0.00001
-    lr_backbone: 0.00001
-    weight_decay: 0.0001
+    lr: 0.0001
+    lr_backbone: 0.0001
+    weight_decay: 0.00001
   custom:
     type: adamw
-    lr: 0.00001
-    weight_decay: 0.0001
-    grad_clip_norm: 10.0
+    lr: 0.0001
+    weight_decay: 0.00001
+    grad_clip_norm: 1.0
     betas: [0.9, 0.999]
     eps: 0.00000001
 
 scheduler:
+  # Ignored when optimizer.mode=policy_preset; GR00T supplies its cosine preset.
   type: none
   num_warmup_steps: 0
 
 state_noise:
-  enabled: true
-  space: normalized
+  enabled: false
+  space: raw
   distribution: gaussian
-  # Default for every selected state feature (not action); normalized units here.
-  std: 0.01
-  # Exact feature-name overrides; YAML order is irrelevant. A 0.0 disables noise
-  # for that feature. To keep lift/head/base clean, list lift_joint, head_joint1,
-  # head_joint2, linear_x, linear_y, and angular_z here with value 0.0.
+  std: null
   std_by_feature: {}
 
 training:
-  job_name: task_000525_full22_all_cameras_smoke
-  output_dir: /workspace/model/lerobot/smoke/task_000525_full22_all_cameras_1000
-  steps: 1000
-  batch_size: 16
+  job_name: task_000525_full_base_groot
+  output_dir: /workspace/model/groot/task_000525_full_base_groot
+  steps: 10000
+  batch_size: 2
   num_workers: 4
   prefetch_factor: 4
   persistent_workers: true
   seed: 1000
   cudnn_deterministic: false
-  mixed_precision: "no"
+  mixed_precision: bf16
   tolerance_s: 0.0001
   save_checkpoint: true
   save_freq: 1000
-  log_freq: 50
+  log_freq: 10
   env_eval_freq: 0
   eval_steps: 0
   max_eval_samples: 0
@@ -146,7 +152,7 @@ training:
 
 wandb:
   enable: false
-  project: cyclo-sg2-act
+  project: cyclo-sg2-groot
 
 simulation:
   environment: Cyclo-Real-Showroom-Task000525-FFW-SG2-v0
